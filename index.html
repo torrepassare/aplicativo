@@ -225,7 +225,7 @@ const ROLE_LABEL={morador:'Morador',sindico:'Síndico',subsindico:'Subsíndico',
 const EMOJIS=['🏛️','🏊','🏋️','🎉','🛝','🅿️','🛗','🌳','🚪','🧺','🔥','🏀'];
 
 /* ===== Camada de dados — pronta p/ backend Google (ver GUIA) ===== */
-const API_BASE = "hhttps://script.google.com/macros/s/AKfycbzDsirlSCJCTLj52rPILR3BYy2i589yuHQOda5okeh3ZbF7v4V1NvyNL0NdcfuQisNk/exec"; // cole aqui a URL do Web App do Google Apps Script
+const API_BASE = "https://script.google.com/macros/s/AKfycbzDsirlSCJCTLj52rPILR3BYy2i589yuHQOda5okeh3ZbF7v4V1NvyNL0NdcfuQisNk/exec"; // cole aqui a URL do Web App do Google Apps Script
 async function loadData(fb){
   if(API_BASE){try{const r=await fetch(API_BASE+"?action=load");const j=await r.json();if(j&&j.data)return j.data;}catch(e){}}
   try{if(window.storage){const r=await window.storage.get('tp_data');if(r&&r.value)return JSON.parse(r.value);}}catch(e){}
