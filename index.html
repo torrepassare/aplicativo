@@ -52,6 +52,7 @@
   .topbar .title small{display:block;font-weight:500;font-size:11px;color:rgba(255,255,255,.6)}
   .topbar .role-pill{font-size:10.5px;background:var(--lime);color:var(--green-900);padding:3px 9px;border-radius:20px;font-weight:700}
   .topbar .switch{color:rgba(255,255,255,.8);font-size:12px;border:1px solid rgba(255,255,255,.25);padding:5px 10px;border-radius:20px}
+  .topbar .switch.alt{color:var(--green-900);background:var(--lime);border-color:var(--lime);font-weight:700}
 
   /* Bottom nav */
   .bottomnav{position:fixed;bottom:0;left:0;right:0;max-width:440px;margin:0 auto;background:#fff;border-top:1px solid var(--line);display:flex;z-index:30;box-shadow:0 -4px 18px rgba(0,0,0,.05)}
@@ -234,6 +235,18 @@ async function saveData(d){
   if(API_BASE){try{await fetch(API_BASE,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'save',data:d})});}catch(e){}}
   try{if(window.storage){await window.storage.set('tp_data',JSON.stringify(d));}}catch(e){}
 }
+/* Sobe a foto para o Drive (via backend) e devolve o link.
+   Sem backend ou em caso de erro, devolve a própria imagem (fallback local). */
+async function pushPhoto(dataUrl,folder,name){
+  if(!API_BASE||typeof dataUrl!=='string'||dataUrl.indexOf('data:')!==0) return dataUrl;
+  try{
+    const r=await fetch(API_BASE,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'uploadPhoto',dataUrl,folder,name})});
+    const j=await r.json();
+    if(j&&j.ok&&j.url) return j.url;
+  }catch(e){}
+  return dataUrl;
+}
+async function pushPhotos(list,folder,name){const out=[];for(let i=0;i<list.length;i++)out.push(await pushPhoto(list[i],folder,name+'_'+i));return out}
 
 function Knot({size=32}){return <img className="knot" src={KNOT} style={{width:size,height:size,display:'block'}} alt=""/>}
 function QR({text,size=96}){
@@ -247,6 +260,34 @@ function genCode(){return String(Math.floor(1000+Math.random()*9000))}
 function slug(s){return s.toLowerCase().normalize('NFD').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'')}
 function digits(s){return (s||'').replace(/\D/g,'')}
 function fmtCpf(s){const d=digits(s).slice(0,11);if(d.length>9)return d.replace(/(\d{3})(\d{3})(\d{3})(\d{1,2})/,'$1.$2.$3-$4');if(d.length>6)return d.replace(/(\d{3})(\d{3})(\d{1,3})/,'$1.$2.$3');if(d.length>3)return d.replace(/(\d{3})(\d{1,3})/,'$1.$2');return d}
+function fmtDate(s){const d=digits(s).slice(0,8);if(d.length>4)return d.slice(0,2)+'/'+d.slice(2,4)+'/'+d.slice(4);if(d.length>2)return d.slice(0,2)+'/'+d.slice(2);return d}
+function fmtTime(s){const d=digits(s).slice(0,4);if(d.length>2)return d.slice(0,2)+':'+d.slice(2);return d}
+function fmtPhone(s){const d=digits(s).slice(0,11);if(d.length>7)return '('+d.slice(0,2)+') '+d.slice(2,7)+'-'+d.slice(7);if(d.length>2)return '('+d.slice(0,2)+') '+d.slice(2);if(d.length>0)return '('+d;return d}
+function fmtDoc(s){const d=digits(s).slice(0,14);if(d.length<=11){if(d.length>9)return d.replace(/(\d{3})(\d{3})(\d{3})(\d{1,2})/,'$1.$2.$3-$4');if(d.length>6)return d.replace(/(\d{3})(\d{3})(\d{1,3})/,'$1.$2.$3');if(d.length>3)return d.replace(/(\d{3})(\d{1,3})/,'$1.$2');return d}return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{1,2})/,'$1.$2.$3/$4-$5')}
+function validDoc(s){const n=digits(s).length;return n===11||n===14}
+function validPhone(s){return digits(s).length===11}
+function parseDate(s){const m=digits(s);if(m.length!==8)return null;const dd=+m.slice(0,2),mm=+m.slice(2,4),yy=+m.slice(4,8);const dt=new Date(yy,mm-1,dd);if(dt.getDate()!==dd||dt.getMonth()!==mm-1||yy<2024)return null;return dt}
+function parseDateTime(s,h){const dt=parseDate(s);if(!dt)return null;const hm=(h||'').match(/^(\d{1,2}):(\d{2})$/);if(!hm)return null;const H=+hm[1],M=+hm[2];if(H>23||M>59)return null;dt.setHours(H,M,0,0);return dt}
+const DAYS=['domingo','segunda','terça','quarta','quinta','sexta','sábado'];
+function validateMove(f){
+  const dt=parseDateTime(f.data,f.hora);
+  if(!dt)return 'Informe data (dd/mm/aaaa) e horário (HH:MM) válidos.';
+  if(dt.getDay()===0)return 'Mudanças são permitidas de segunda a sábado. O dia escolhido é domingo.';
+  const mins=dt.getHours()*60+dt.getMinutes();
+  if(mins<480||mins>1080)return 'Horário permitido para mudança: das 08h00 às 18h00.';
+  if(dt.getTime()-Date.now()<86400000)return 'A mudança deve ser solicitada com no mínimo 24h de antecedência.';
+  return null;
+}
+function validateWork(f){
+  const di=parseDate(f.dataInicio),df=parseDate(f.dataFim);
+  if(!di||!df)return 'Informe datas de início e fim válidas (dd/mm/aaaa).';
+  if(di.getDay()===0||di.getDay()===6)return 'Obras são permitidas de segunda a sexta. A data de início cai em '+DAYS[di.getDay()]+'.';
+  if(df.getDay()===0||df.getDay()===6)return 'Obras são permitidas de segunda a sexta. A data de fim cai em '+DAYS[df.getDay()]+'.';
+  const today=new Date();today.setHours(0,0,0,0);
+  if(di<today)return 'A data de início não pode estar no passado.';
+  if(df<di)return 'A data de fim não pode ser anterior à de início.';
+  return null;
+}
 
 /* ===== Hash de senha (SHA-256 + salt + key stretching, JS puro) =====
    As senhas NUNCA são guardadas em texto. Armazenamos apenas {salt, hash}.
@@ -275,16 +316,17 @@ function sha256hex(str){return toHex(sha256bytes(utf8(str)))}
 function makeSalt(){const a=new Uint8Array(12);if(typeof crypto!=='undefined'&&crypto.getRandomValues)crypto.getRandomValues(a);else for(let i=0;i<12;i++)a[i]=Math.floor(Math.random()*256);return toHex(a)}
 function deriveHash(pw,salt){let h=salt+':'+pw;for(let i=0;i<8000;i++)h=sha256hex(h);return h}
 function verifyPass(user,pw){if(user.hash)return deriveHash(pw,user.salt)===user.hash;return user.pass===pw}
-function migrateUsers(users){return users.map(u=>{if(u.hash)return u;const salt=makeSalt(),hash=deriveHash(u.pass||'',salt);const c={...u,salt,hash};delete c.pass;return c})}
+function migrateUsers(users){return users.map(u=>{const withStatus=u.status?u:{...u,status:'ativo'};if(withStatus.hash)return withStatus;const salt=makeSalt(),hash=deriveHash(withStatus.pass||'',salt);const c={...withStatus,salt,hash};delete c.pass;return c})}
 
 /* ===== SEED ===== */
 const seed={
   users:[
-    {id:'u1',name:'Roberto Lima',role:'sindico',apt:'201',torre:'1',cpf:'111.111.111-11',email:'sindico@torrepassare.com',pass:'sindico123'},
-    {id:'u2',name:'Helena Souza',role:'subsindico',apt:'808',torre:'2',cpf:'222.222.222-22',email:'subsindico@torrepassare.com',pass:'sub123'},
-    {id:'u3',name:'João Portaria',role:'porteiro',apt:'-',torre:'-',cpf:'333.333.333-33',email:'portaria@torrepassare.com',pass:'portaria123'},
-    {id:'u4',name:'José Silva',role:'limpeza',apt:'-',torre:'-',cpf:'444.444.444-44',email:'limpeza@torrepassare.com',pass:'limpeza123'},
-    {id:'u5',name:'Marina Alves',role:'morador',apt:'304',torre:'1',cpf:'012.345.678-90',email:'morador@torrepassare.com',pass:'morador123'},
+    {id:'u1',name:'Roberto Lima',role:'sindico',apt:'201',torre:'1',cpf:'111.111.111-11',email:'sindico@torrepassare.com',pass:'sindico123',status:'ativo'},
+    {id:'u2',name:'Helena Souza',role:'subsindico',apt:'808',torre:'2',cpf:'222.222.222-22',email:'subsindico@torrepassare.com',pass:'sub123',status:'ativo'},
+    {id:'u3',name:'João Portaria',role:'porteiro',apt:'-',torre:'-',cpf:'333.333.333-33',email:'portaria@torrepassare.com',pass:'portaria123',status:'ativo'},
+    {id:'u4',name:'José Silva',role:'limpeza',apt:'-',torre:'-',cpf:'444.444.444-44',email:'limpeza@torrepassare.com',pass:'limpeza123',status:'ativo'},
+    {id:'u5',name:'Marina Alves',role:'morador',apt:'304',torre:'1',cpf:'012.345.678-90',email:'morador@torrepassare.com',pass:'morador123',status:'ativo'},
+    {id:'u6',name:'Bruno Carvalho',role:'morador',apt:'402',torre:'2',cpf:'555.666.777-88',email:'bruno@email.com',pass:'bruno123',status:'pendente'},
   ],
   areas:[
     {id:'hall-t1',name:'Hall Torre 1',icon:'🏛️'},
@@ -302,11 +344,11 @@ const seed={
     {id:3,title:'Novo horário da coleta de lixo',text:'A partir de segunda-feira a coleta passa a ser às 7h e às 19h. Deixe os resíduos separados na lixeira do seu andar.',date:'05/06/2026 · 11:05',tag:'info',author:'Síndico',image:null},
   ],
   moveRequests:[
-    {id:101,kind:'move',apt:'304',torre:'1',solicitante:'Marina Alves',tipoMov:'Entrada',data:'20/06/2026',hora:'09:00',empresa:'TransMudanças CE',placa:'PHK-2D34',nome:'Marina Alves',cpf:'012.345.678-90',agreed:true,status:'pendente',note:'',rejectReason:'',realizada:null,createdAt:'13/06/2026'},
-    {id:102,kind:'move',apt:'1102',torre:'2',solicitante:'Carlos Nunes',tipoMov:'Saída',data:'17/06/2026',hora:'14:00',empresa:'Mudou Fácil',placa:'OQR-7788',nome:'Carlos Nunes',cpf:'987.654.321-00',agreed:true,status:'aprovada',note:'Autorizado. Reservar elevador de serviço.',rejectReason:'',realizada:null,createdAt:'11/06/2026'},
+    {id:101,kind:'move',apt:'304',torre:'1',solicitante:'Marina Alves',tipoMov:'Entrada',data:'20/06/2026',hora:'09:00',empresa:'TransMudanças CE',placa:'PHK-2D34',workers:[{name:'Antônio Pereira',doc:'123.456.789-00'},{name:'Lucas Ramos',doc:'987.654.321-00'}],nome:'Marina Alves',cpf:'012.345.678-90',agreed:true,status:'pendente',note:'',rejectReason:'',realizada:null,createdAt:'13/06/2026'},
+    {id:102,kind:'move',apt:'1102',torre:'2',solicitante:'Carlos Nunes',tipoMov:'Saída',data:'17/06/2026',hora:'14:00',empresa:'Mudou Fácil',placa:'OQR-7788',workers:[{name:'Sérgio Dias',doc:'321.654.987-11'}],nome:'Carlos Nunes',cpf:'987.654.321-00',agreed:true,status:'aprovada',note:'Autorizado. Reservar elevador de serviço.',rejectReason:'',realizada:null,createdAt:'11/06/2026'},
   ],
   workRequests:[
-    {id:201,kind:'work',apt:'507',torre:'1',solicitante:'Júlia Mendes',tipoObra:'Reforma de banheiro (troca de revestimento)',dataInicio:'23/06/2026',dataFim:'04/07/2026',servicos:[{servico:'Hidráulica e assentamento',prestador:'Reformas Premium',doc:'33.444.555/0001-22',tel:'(85) 99876-5544'}],nome:'Júlia Mendes',cpf:'111.222.333-44',agreed:true,status:'pendente',note:'',rejectReason:'',realizada:null,createdAt:'12/06/2026'},
+    {id:201,kind:'work',apt:'507',torre:'1',solicitante:'Júlia Mendes',tipoObra:'Reforma de banheiro (troca de revestimento)',dataInicio:'23/06/2026',dataFim:'03/07/2026',servicos:[{servico:'Hidráulica e assentamento',prestador:'Reformas Premium',doc:'33.444.555/0001-22',tel:'(85) 99876-5544',executores:[{name:'Marcos Vinícius',cpf:'222.333.444-55'},{name:'Rafael Lima',cpf:'666.777.888-99'}]}],nome:'Júlia Mendes',cpf:'111.222.333-44',agreed:true,status:'pendente',note:'',rejectReason:'',realizada:null,createdAt:'12/06/2026'},
   ],
   cleaningLogs:[
     {id:301,areaId:'hall-t1',areaName:'Hall Torre 1',by:'José Silva',datetime:'15/06 · 07:40',photos:[PH_HALL],note:'Piso lavado e tapetes higienizados.'},
@@ -315,11 +357,204 @@ const seed={
   ],
   packages:[
     {id:401,apt:'304',torre:'1',recipient:'Marina Alves',carrier:'Correios',tracking:'BR123456789CE',type:'Caixa',code:'7421',status:'aguardando',registeredBy:'João Portaria',registeredAt:'15/06 · 11:20',pickedUpBy:null,pickedUpAt:null},
-    {id:402,apt:'507',torre:'1',recipient:'Júlia Mendes',carrier:'Mercado Livre',tracking:'ML998877',type:'Envelope',code:'3098',status:'entregue',registeredBy:'João Portaria',registeredAt:'13/06 · 09:05',pickedUpBy:'Júlia Mendes',pickedUpAt:'13/06 · 18:42'},
+    {id:402,apt:'507',torre:'1',recipient:'Júlia Mendes',carrier:'Mercado Livre',tracking:'ML998877',type:'Envelope',code:'3098',status:'entregue',registeredBy:'João Portaria',registeredAt:'13/06 · 09:05',pickedUpBy:'Júlia Mendes',deliveredBy:'João Portaria',pickedUpAt:'13/06 · 18:42'},
   ],
+  tickets:[
+    {id:601,apt:'304',torre:'1',solicitante:'Marina Alves',category:'Hidráulica',local:'Apartamento 304 - banheiro',title:'Vazamento na pia',desc:'A pia do banheiro está pingando embaixo do sifão.',photo:null,status:'andamento',updates:[{by:'Síndico',text:'Encanador agendado para quinta-feira (18/06).',status:'andamento',at:'14/06 · 10:00'}],createdAt:'13/06/2026'},
+    {id:602,apt:'201',torre:'1',solicitante:'Roberto Lima',category:'Iluminação',local:'Hall do 2º andar',title:'Lâmpada queimada',desc:'A lâmpada do corredor do 2º andar está queimada.',photo:null,status:'aberto',updates:[],createdAt:'15/06/2026'},
+  ],
+  visitors:[
+    {id:701,apt:'304',torre:'1',moradorName:'Marina Alves',visitorName:'Pedro Gomes',doc:'RG 1234567',kind:'Visitante',date:'16/06/2026',obs:'Chega por volta das 19h.',status:'aguardando',arrivedAt:null,registeredBy:null,createdAt:'15/06/2026'},
+    {id:702,apt:'201',torre:'1',moradorName:'Roberto Lima',visitorName:'Limpeza Brilho (2 pessoas)',doc:'Van placa ABC-1234',kind:'Prestador de serviço',date:'15/06/2026',obs:'',status:'entrou',arrivedAt:'15/06 · 08:10',registeredBy:'João Portaria',createdAt:'14/06/2026'},
+  ],
+  documents:[
+    {id:801,title:'Regimento Interno e Convenção',category:'Regimento',date:'2025',url:'https://drive.google.com/file/d/11ci6uSyirOzacbfR8iogZJHvqeRwPJ_S/view',addedBy:'Síndico'},
+    {id:802,title:'Ata da Assembleia Ordinária 2025',category:'Atas de assembleia',date:'12/2025',url:'#',addedBy:'Síndico'},
+  ],
+  acks:[],
 };
 
 function Lightbox({src,onClose}){if(!src)return null;return <div className="lightbox" onClick={onClose}><span className="lx">×</span><img src={src} onClick={e=>e.stopPropagation()}/></div>}
+/* ===== Chamados, Visitantes e Documentos ===== */
+const TK_ST={aberto:['st-pend','🆕 Aberto'],andamento:['st-feita','🔧 Em andamento'],concluido:['st-aprov','✓ Concluído'],cancelado:['st-reprov','✕ Cancelado']};
+const VS_ST={aguardando:['st-pend','⏳ Aguardando'],entrou:['st-aprov','✓ Entrada registrada'],cancelado:['st-reprov','✕ Cancelado']};
+function MiniPill({map,s}){const a=map[s]||map[Object.keys(map)[0]];return <span className={'status '+a[0]}>{a[1]}</span>}
+
+function TicketCard({t,view,openImg,actions}){
+  const cls=t.status==='concluido'?'aprov':t.status==='andamento'?'feita':t.status==='cancelado'?'reprov':'pend';
+  return (<div className={'req-card '+cls}>
+    <div className="req-top"><div><div className="who">🔧 {t.title}</div><div className="meta">{t.category} · Apto {t.apt} · Torre {t.torre}</div></div><MiniPill map={TK_ST} s={t.status}/></div>
+    {t.local && <div className="req-line"><b>Local</b> {t.local}</div>}
+    <div className="req-line"><b>Descrição</b> {t.desc}</div>
+    {t.photo && <div className="photo-strip"><img src={t.photo} onClick={()=>openImg&&openImg(t.photo)}/></div>}
+    {t.updates&&t.updates.length>0 && <div className="note-box"><b>Atualizações:</b>{t.updates.map((u,i)=><div key={i} style={{marginTop:5}}>• <b>{u.at}</b> — {u.text}</div>)}</div>}
+    {actions}
+  </div>);
+}
+function VisitorCard({v,view,actions}){
+  const cls=v.status==='entrou'?'aprov':v.status==='cancelado'?'reprov':'pend';
+  return (<div className={'req-card '+cls}>
+    <div className="req-top"><div><div className="who">🚶 {v.visitorName}</div><div className="meta">{v.kind} · Apto {v.apt} · Torre {v.torre}</div></div><MiniPill map={VS_ST} s={v.status}/></div>
+    {v.doc && <div className="req-line"><b>Documento</b> {v.doc}</div>}
+    <div className="req-line"><b>Data</b> {v.date}</div>
+    {view==='porteiro' && <div className="req-line"><b>Autorizado por</b> {v.moradorName}</div>}
+    {v.obs && <div className="note-box">{v.obs}</div>}
+    {v.arrivedAt && <div className="note-box" style={{background:'#e6eef7',color:'#2f5d86'}}>Entrada registrada em {v.arrivedAt}{v.registeredBy?(' · '+v.registeredBy):''}</div>}
+    {actions}
+  </div>);
+}
+function TicketForm({me,onCancel,onSubmit}){
+  const cats=['Hidráulica','Elétrica','Elevador','Estrutura/Alvenaria','Área comum','Iluminação','Outro'];
+  const [f,setF]=useState({category:cats[0],local:'',title:'',desc:''});
+  const [photo,setPhoto]=useState(null);const [saving,setSaving]=useState(false);const fileRef=useRef();
+  const set=k=>e=>setF({...f,[k]:e.target.value});
+  const onFile=e=>{const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=()=>setPhoto(r.result);r.readAsDataURL(file)};
+  const valid=f.title&&f.desc;
+  const submit=async()=>{setSaving(true);const ph=photo?await pushPhoto(photo,'chamados','chamado'):null;onSubmit({id:Date.now(),apt:me.apt,torre:me.torre,solicitante:me.name,category:f.category,local:f.local,title:f.title,desc:f.desc,photo:ph,status:'aberto',updates:[],createdAt:todayStr()})};
+  return (<>
+    <div className="page-head"><h2>🔧 Chamado de manutenção</h2><p>Apartamento {me.apt} · Torre {me.torre}</p></div>
+    <div className="card"><div className="card-pad">
+      <div className="field"><label>Categoria</label><select value={f.category} onChange={set('category')}>{cats.map(c=><option key={c}>{c}</option>)}</select></div>
+      <div className="field"><label>Local</label><input value={f.local} onChange={set('local')} placeholder="Ex: banheiro do apto, hall do 5º andar..."/></div>
+      <div className="field"><label>Título</label><input value={f.title} onChange={set('title')} placeholder="Resumo do problema"/></div>
+      <div className="field"><label>Descrição</label><textarea value={f.desc} onChange={set('desc')} placeholder="Descreva o que está acontecendo"/></div>
+      <div className="field"><label>Foto (opcional)</label>
+        <input ref={fileRef} type="file" accept="image/*" style={{display:'none'}} onChange={onFile}/>
+        {photo?<div className="photo-prev"><div className="pp"><img src={photo}/><button className="x" onClick={()=>setPhoto(null)}>×</button></div></div>:<div className="add-photo" onClick={()=>fileRef.current.click()}><span className="ic">📷</span>Anexar foto</div>}
+      </div>
+    </div></div>
+    <div style={{padding:16,display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} onClick={onCancel} disabled={saving}>Cancelar</button><button className="btn" style={{flex:2}} disabled={!valid||saving} onClick={submit}>{saving?'Enviando…':'Abrir chamado'}</button></div>
+  </>);
+}
+function VisitorForm({me,onCancel,onSubmit}){
+  const kinds=['Visitante','Prestador de serviço','Entrega','Diarista/Empregada','Outro'];
+  const [f,setF]=useState({visitorName:'',doc:'',kind:kinds[0],date:'',obs:''});
+  const set=k=>e=>setF({...f,[k]:e.target.value});
+  const valid=f.visitorName&&f.date;
+  const submit=()=>onSubmit({id:Date.now(),apt:me.apt,torre:me.torre,moradorName:me.name,visitorName:f.visitorName,doc:f.doc,kind:f.kind,date:f.date,obs:f.obs,status:'aguardando',arrivedAt:null,registeredBy:null,createdAt:todayStr()});
+  return (<>
+    <div className="page-head"><h2>🚶 Autorizar visitante</h2><p>Apartamento {me.apt} · Torre {me.torre}</p></div>
+    <div className="card"><div className="card-pad">
+      <div className="field"><label>Tipo</label><select value={f.kind} onChange={set('kind')}>{kinds.map(c=><option key={c}>{c}</option>)}</select></div>
+      <div className="field"><label>Nome do visitante</label><input value={f.visitorName} onChange={set('visitorName')} placeholder="Nome completo"/></div>
+      <div className="field"><label>Documento / placa (opcional)</label><input value={f.doc} onChange={set('doc')} placeholder="RG/CPF ou placa do veículo"/></div>
+      <div className="field"><label>Data prevista</label><input value={f.date} onChange={set('date')} placeholder="dd/mm/aaaa"/></div>
+      <div className="field"><label>Observação (opcional)</label><textarea value={f.obs} onChange={set('obs')} placeholder="Ex: chega por volta das 19h"/></div>
+    </div></div>
+    <div className="hint">🛎️ A portaria recebe esta pré-autorização e registra a entrada quando o visitante chegar.</div>
+    <div style={{padding:16,display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} onClick={onCancel}>Cancelar</button><button className="btn" style={{flex:2}} disabled={!valid} onClick={submit}>Autorizar visitante</button></div>
+  </>);
+}
+function MoradorAcompanhar({data,me,setData,toast,openImg}){
+  const [seg,setSeg]=useState('solic');
+  const myReqs=[...data.moveRequests,...data.workRequests].filter(r=>r.apt===me.apt&&r.torre===me.torre);
+  const myTickets=data.tickets.filter(t=>t.apt===me.apt&&t.torre===me.torre);
+  const myVisitors=data.visitors.filter(v=>v.apt===me.apt&&v.torre===me.torre);
+  const myPkgs=data.packages.filter(p=>p.apt===me.apt&&p.torre===me.torre);
+  const cancelTicket=id=>setData(d=>({...d,tickets:d.tickets.map(t=>t.id===id?{...t,status:'cancelado'}:t)}));
+  const cancelVisitor=id=>setData(d=>({...d,visitors:d.visitors.map(v=>v.id===id?{...v,status:'cancelado'}:v)}));
+  return (<>
+    <div className="page-head"><h2>Acompanhar</h2><p>Seus pedidos e registros</p></div>
+    <div style={{padding:'0 16px'}}><div className="seg">
+      {[['solic','Solicit.'],['chamados','Chamados'],['visitantes','Visitas'],['encomendas','Encom.']].map(([v,l])=><button key={v} className={seg===v?'on':''} onClick={()=>setSeg(v)} style={{fontSize:11.5,padding:'9px 4px'}}>{l}</button>)}
+    </div></div>
+    <div style={{height:6}}></div>
+    {seg==='solic' && (myReqs.length?myReqs.map(r=><ReqCard key={r.id} r={r} view="morador"/>):<Empty ic="📋" msg="Nenhuma solicitação de mudança ou obra."/>)}
+    {seg==='chamados' && (myTickets.length?myTickets.map(t=><TicketCard key={t.id} t={t} view="morador" openImg={openImg} actions={t.status==='aberto'?<button className="btn ghost sm" style={{width:'100%',marginTop:10}} onClick={()=>cancelTicket(t.id)}>Cancelar chamado</button>:null}/>):<Empty ic="🔧" msg="Nenhum chamado aberto."/>)}
+    {seg==='visitantes' && (myVisitors.length?myVisitors.map(v=><VisitorCard key={v.id} v={v} view="morador" actions={v.status==='aguardando'?<button className="btn ghost sm" style={{width:'100%',marginTop:10}} onClick={()=>cancelVisitor(v.id)}>Cancelar autorização</button>:null}/>):<Empty ic="🚶" msg="Nenhum visitante autorizado."/>)}
+    {seg==='encomendas' && <MoradorEncomendas pkgs={myPkgs}/>}
+  </>);
+}
+function DocsList({docs}){
+  const cats=[...new Set(docs.map(d=>d.category))];
+  const open=url=>{if(url&&url!=='#')window.open(url,'_blank')};
+  return (<>
+    <div className="page-head"><h2>Documentos</h2><p>Regimento, convenção, atas e comunicados oficiais</p></div>
+    {docs.length===0 && <Empty ic="📄" msg="Nenhum documento publicado ainda."/>}
+    {cats.map(cat=>(<React.Fragment key={cat}>
+      <div className="section-label">{cat}</div>
+      {docs.filter(d=>d.category===cat).map(d=>(
+        <div key={d.id} className="area-card" style={{alignItems:'center'}}>
+          <div className="area-ic">📄</div>
+          <div className="area-info"><div className="an">{d.title}</div><div className="at">{d.date}</div></div>
+          {d.url&&d.url!=='#'?<button className="btn sm" onClick={()=>open(d.url)}>Abrir</button>:<span className="at">em breve</span>}
+        </div>))}
+    </React.Fragment>))}
+  </>);
+}
+function DocsManager({data,setData,toast,back}){
+  const cats=['Regimento','Convenção','Atas de assembleia','Comunicados oficiais','Outros'];
+  const [f,setF]=useState({title:'',category:cats[0],date:'',url:''});
+  const [file,setFile]=useState(null);const [saving,setSaving]=useState(false);const [err,setErr]=useState('');const fileRef=useRef();
+  const onFile=e=>{const fl=e.target.files[0];if(!fl)return;const r=new FileReader();r.onload=()=>setFile({name:fl.name,data:r.result});r.readAsDataURL(fl)};
+  const add=async()=>{
+    if(!f.title){setErr('Informe o título.');return}
+    if(!f.url&&!file){setErr('Cole um link ou anexe um arquivo.');return}
+    setSaving(true);
+    let url=f.url.trim();
+    if(file) url=await pushPhoto(file.data,'documentos',slug(f.title));
+    setData(d=>({...d,documents:[{id:Date.now(),title:f.title,category:f.category,date:f.date||todayStr(),url:url||'#',addedBy:'Síndico'},...d.documents]}));
+    setF({title:'',category:cats[0],date:'',url:''});setFile(null);setSaving(false);toast('Documento adicionado');
+  };
+  const remove=id=>setData(d=>({...d,documents:d.documents.filter(x=>x.id!==id)}));
+  return (<>
+    <div className="back-head"><button onClick={back}>‹</button><h2>Documentos</h2></div>
+    <div className="hint">📎 Publique regimento, convenção, atas e comunicados. Cole um link (Drive, PDF) ou anexe um arquivo — com o backend ligado, o arquivo vai para a pasta "documentos" no Drive.</div>
+    <div className="card"><div className="card-pad">
+      {err && <div className="err">{err}</div>}
+      <div className="field"><label>Categoria</label><select value={f.category} onChange={e=>setF({...f,category:e.target.value})}>{cats.map(c=><option key={c}>{c}</option>)}</select></div>
+      <div className="field"><label>Título</label><input value={f.title} onChange={e=>{setF({...f,title:e.target.value});setErr('')}} placeholder="Ex: Ata da assembleia de junho/2026"/></div>
+      <div className="field"><label>Data / referência</label><input value={f.date} onChange={e=>setF({...f,date:e.target.value})} placeholder="06/2026"/></div>
+      <div className="field"><label>Link do documento</label><input value={f.url} onChange={e=>{setF({...f,url:e.target.value});setErr('')}} placeholder="https://..."/></div>
+      <div className="field"><label>ou anexe um arquivo</label>
+        <input ref={fileRef} type="file" accept="application/pdf,image/*" style={{display:'none'}} onChange={onFile}/>
+        {file?<div className="hint" style={{margin:0}}>📄 {file.name} <a style={{marginLeft:8,color:'var(--red)',fontWeight:700}} onClick={()=>setFile(null)}>remover</a></div>:<div className="add-photo" onClick={()=>fileRef.current.click()}><span className="ic">📎</span>Anexar PDF/arquivo</div>}
+      </div>
+      <button className="btn" disabled={saving} onClick={add}>{saving?'Enviando…':'Adicionar documento'}</button>
+    </div></div>
+    <div className="section-label">Publicados ({data.documents.length})</div>
+    {data.documents.map(d=>(<div key={d.id} className="area-row"><div className="area-ic" style={{width:40,height:40,fontSize:18}}>📄</div><div style={{flex:1,minWidth:0}}><div className="nm">{d.title}</div><div className="cd">{d.category} · {d.date}</div></div><button className="btn red sm" onClick={()=>remove(d.id)}>Excluir</button></div>))}
+    <div style={{height:14}}></div>
+  </>);
+}
+function SindicoChamados({data,setData,toast,openImg,back}){
+  const [filter,setFilter]=useState('abertos');const [active,setActive]=useState(null);
+  const list=data.tickets.filter(t=>filter==='todos'?true:filter==='abertos'?(t.status==='aberto'||t.status==='andamento'):t.status===filter);
+  const apply=(id,status,text)=>{setData(d=>({...d,tickets:d.tickets.map(t=>t.id===id?{...t,status,updates:[...(t.updates||[]),{by:'Síndico',text:text||('Status atualizado: '+TK_ST[status][1]),status,at:nowStr()}]}:t)}));setActive(null);toast('Chamado atualizado')};
+  return (<>
+    <div className="back-head"><button onClick={back}>‹</button><h2>Chamados de manutenção</h2></div>
+    <div style={{padding:'0 16px'}}><div className="seg">{[['abertos','Em aberto'],['concluido','Concluídos'],['todos','Todos']].map(([v,l])=><button key={v} className={filter===v?'on':''} onClick={()=>setFilter(v)}>{l}</button>)}</div></div>
+    <div style={{height:6}}></div>
+    {list.length===0?<Empty ic="🔧" msg="Nenhum chamado nesta categoria."/>:list.map(t=>(
+      <TicketCard key={t.id} t={t} view="sindico" openImg={openImg} actions={
+        active===t.id? <TicketPanel cur={t.status} onConfirm={(s,txt)=>apply(t.id,s,txt)} onCancel={()=>setActive(null)}/> :
+        (t.status!=='concluido'&&t.status!=='cancelado')?<button className="btn sm" style={{width:'100%',marginTop:10}} onClick={()=>setActive(t.id)}>Atualizar status</button>:null
+      }/>))}
+  </>);
+}
+function TicketPanel({cur,onConfirm,onCancel}){
+  const [s,setS]=useState(cur==='aberto'?'andamento':cur);const [txt,setTxt]=useState('');
+  const opts=[['andamento','Em andamento'],['concluido','Concluído'],['cancelado','Cancelado'],['aberto','Reabrir']];
+  return (<div style={{marginTop:12,background:'#f6f8f3',borderRadius:11,padding:12}}>
+    <div className="field" style={{marginBottom:10}}><label>Novo status</label><select value={s} onChange={e=>setS(e.target.value)}>{opts.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>
+    <div className="field" style={{marginBottom:10}}><label>Resposta ao morador (opcional)</label><textarea value={txt} onChange={e=>setTxt(e.target.value)} placeholder="Ex: técnico agendado para quinta-feira" style={{minHeight:50}}/></div>
+    <div style={{display:'flex',gap:9}}><button className="btn ghost sm" style={{flex:1}} onClick={onCancel}>Voltar</button><button className="btn sm" style={{flex:1.4}} onClick={()=>onConfirm(s,txt.trim())}>Salvar atualização</button></div>
+  </div>);
+}
+function PorteiroVisitantes({data,setData,toast,me}){
+  const pend=data.visitors.filter(v=>v.status==='aguardando');const done=data.visitors.filter(v=>v.status==='entrou');
+  const entry=id=>setData(d=>({...d,visitors:d.visitors.map(v=>v.id===id?{...v,status:'entrou',arrivedAt:nowStr(),registeredBy:me.name}:v)}));
+  return (<>
+    <div className="page-head"><h2>Visitantes autorizados</h2><p>Pré-autorizações enviadas pelos moradores</p></div>
+    <div className="section-label">Aguardando chegada ({pend.length})</div>
+    {pend.length===0?<Empty ic="🚶" msg="Nenhum visitante aguardando."/>:pend.map(v=>(
+      <VisitorCard key={v.id} v={v} view="porteiro" actions={<button className="btn dark sm" style={{width:'100%',marginTop:10}} onClick={()=>entry(v.id)}>🚪 Registrar entrada</button>}/>))}
+    <div className="section-label">Entradas registradas ({done.length})</div>
+    {done.map(v=><VisitorCard key={v.id} v={v} view="porteiro"/>)}
+    <div style={{height:14}}></div>
+  </>);
+}
+
 function Empty({ic,msg}){return <div className="empty"><span className="ic">{ic}</span><p>{msg}</p></div>}
 function areaIcon(areas,id){const a=areas.find(x=>x.id===id);return a?a.icon:'🧽'}
 
@@ -330,20 +565,24 @@ function App(){
   const [toast,setToast]=useState(null);
   const [lightbox,setLightbox]=useState(null);
   const [ready,setReady]=useState(false);
+  const [asMorador,setAsMorador]=useState(false);
   const showToast=m=>{setToast(m);setTimeout(()=>setToast(null),2200)};
 
-  useEffect(()=>{(async()=>{const d=await loadData(seed);if(d){if(!d.users)d.users=seed.users;if(!d.areas)d.areas=seed.areas;if(!d.packages)d.packages=seed.packages;d.users=migrateUsers(d.users);setData(d);}setReady(true)})()},[]);
+  useEffect(()=>{(async()=>{const d=await loadData(seed);if(d){if(!d.users)d.users=seed.users;if(!d.areas)d.areas=seed.areas;if(!d.packages)d.packages=seed.packages;if(!d.tickets)d.tickets=seed.tickets;if(!d.visitors)d.visitors=seed.visitors;if(!d.documents)d.documents=seed.documents;if(!d.acks)d.acks=[];d.users=migrateUsers(d.users);setData(d);}setReady(true)})()},[]);
   useEffect(()=>{if(ready)saveData(data)},[data,ready]);
 
   const shared={data,setData,toast:showToast,openImg:setLightbox};
   if(!user) return <><Auth data={data} setData={setData} onLogin={setUser}/><Lightbox src={lightbox} onClose={()=>setLightbox(null)}/></>;
-  const view=user.role==='subsindico'?'sindico':user.role;
+  const canSwitch=user.role==='sindico'||user.role==='subsindico';
+  const view=(canSwitch&&asMorador)?'morador':(user.role==='subsindico'?'sindico':user.role);
+  const switchBtn=canSwitch?<button className="switch alt" onClick={()=>setAsMorador(v=>!v)}>{asMorador?('↔ '+ROLE_LABEL[user.role]):'↔ Morador'}</button>:null;
+  const logout=()=>{setAsMorador(false);setUser(null)};
   return (
     <div className="app-shell">
-      {view==='morador' && <Morador {...shared} me={user} back={()=>setUser(null)}/>}
-      {view==='sindico' && <Sindico {...shared} me={user} back={()=>setUser(null)}/>}
-      {view==='porteiro' && <Porteiro {...shared} me={user} back={()=>setUser(null)}/>}
-      {view==='limpeza' && <Limpeza {...shared} me={user} back={()=>setUser(null)}/>}
+      {view==='morador' && <Morador {...shared} me={user} back={logout} switchBtn={switchBtn}/>}
+      {view==='sindico' && <Sindico {...shared} me={user} back={logout} switchBtn={switchBtn}/>}
+      {view==='porteiro' && <Porteiro {...shared} me={user} back={logout}/>}
+      {view==='limpeza' && <Limpeza {...shared} me={user} back={logout}/>}
       {toast && <div className="toast">✓ {toast}</div>}
       <Lightbox src={lightbox} onClose={()=>setLightbox(null)}/>
     </div>
@@ -358,6 +597,8 @@ function Auth({data,setData,onLogin}){
   const login=()=>{
     const u=data.users.find(x=>x.email.toLowerCase()===email.trim().toLowerCase());
     if(!u||!verifyPass(u,pass)){setErr('E-mail ou senha incorretos.');return}
+    if(u.status==='pendente'){setErr('Seu cadastro está em análise pelo síndico. Você poderá entrar após a aprovação.');return}
+    if(u.status==='rejeitado'){setErr('Seu cadastro não foi aprovado. Procure o síndico.');return}
     onLogin(u);
   };
   if(mode==='register') return <Register data={data} setData={setData} onDone={onLogin} back={()=>setMode('login')}/>;
@@ -375,18 +616,12 @@ function Auth({data,setData,onLogin}){
         <div style={{textAlign:'center',marginTop:12}}><a style={{color:'var(--green-700)',fontWeight:700,fontSize:13,textDecoration:'underline'}} onClick={()=>setMode('forgot')}>Esqueci minha senha</a></div>
       </div>
       <div className="auth-foot">É morador e ainda não tem conta?<br/><a onClick={()=>setMode('register')}>Criar minha conta</a></div>
-      <div className="demo">
-        <b>Contas de demonstração</b> (toque para preencher):
-        {[['Síndico','sindico@torrepassare.com','sindico123'],['Subsíndico','subsindico@torrepassare.com','sub123'],['Porteiro','portaria@torrepassare.com','portaria123'],['Limpeza (ASG)','limpeza@torrepassare.com','limpeza123'],['Morador','morador@torrepassare.com','morador123']].map(([r,e,p])=>(
-          <div key={e} className="dline" onClick={()=>{setEmail(e);setPass(p);setErr('')}}><span>{r}</span><span>{e}</span></div>
-        ))}
-      </div>
     </div></div>
   );
 }
 function Register({data,setData,onDone,back}){
   const [f,setF]=useState({name:'',torre:'',apt:'',cpf:'',email:'',pass:'',pass2:''});
-  const [err,setErr]=useState('');
+  const [err,setErr]=useState('');const [done,setDone]=useState(false);
   const set=k=>e=>{setF({...f,[k]:e.target.value});setErr('')};
   const submit=()=>{
     if(!f.name||!f.torre||!f.apt||!f.cpf||!f.email||!f.pass){setErr('Preencha todos os campos.');return}
@@ -395,15 +630,26 @@ function Register({data,setData,onDone,back}){
     if(f.pass!==f.pass2){setErr('As senhas não conferem.');return}
     if(data.users.some(u=>u.email.toLowerCase()===f.email.trim().toLowerCase())){setErr('Já existe uma conta com este e-mail.');return}
     if(data.users.some(u=>u.cpf&&digits(u.cpf)===digits(f.cpf))){setErr('Já existe uma conta com este CPF.');return}
-    const salt=makeSalt();const u={id:'u'+Date.now(),name:f.name,role:'morador',apt:f.apt,torre:f.torre,cpf:fmtCpf(f.cpf),email:f.email.trim(),salt,hash:deriveHash(f.pass,salt)};
+    const salt=makeSalt();const u={id:'u'+Date.now(),name:f.name,role:'morador',apt:f.apt,torre:f.torre,cpf:fmtCpf(f.cpf),email:f.email.trim(),salt,hash:deriveHash(f.pass,salt),status:'pendente'};
     setData(d=>({...d,users:[...d.users,u]}));
-    onDone(u);
+    setDone(true);
   };
+  if(done) return (
+    <div className="app-shell"><div className="auth">
+      <div className="auth-logo"><img src={LOCKUP} alt=""/></div>
+      <div className="auth-card" style={{marginTop:20,textAlign:'center'}}>
+        <div className="popup-ic" style={{margin:'4px auto 14px'}}>⏳</div>
+        <h3 style={{margin:'0 0 8px',color:'var(--green-900)',fontSize:19}}>Cadastro enviado!</h3>
+        <p style={{fontSize:14,color:'#374039',lineHeight:1.5,marginBottom:18}}>Seu cadastro foi enviado para <b>aprovação do síndico</b>. Assim que for aprovado, você poderá entrar com seu e-mail e senha.</p>
+        <button className="btn" onClick={back}>Voltar ao login</button>
+      </div>
+    </div></div>
+  );
   return (
     <div className="app-shell"><div className="auth">
       <div className="auth-logo"><img src={LOCKUP} alt=""/></div>
       <h1>Criar conta de morador</h1>
-      <p className="sub">Preencha seus dados de acesso</p>
+      <p className="sub">Seu acesso passa por aprovação do síndico</p>
       <div className="auth-card">
         {err && <div className="err">{err}</div>}
         <div className="field"><label>Nome completo</label><input value={f.name} onChange={set('name')} placeholder="Seu nome"/></div>
@@ -415,7 +661,7 @@ function Register({data,setData,onDone,back}){
         <div className="field"><label>E-mail</label><input type="email" value={f.email} onChange={set('email')} placeholder="voce@email.com"/></div>
         <div className="field"><label>Senha</label><input type="password" value={f.pass} onChange={set('pass')} placeholder="mínimo 6 caracteres"/></div>
         <div className="field"><label>Confirmar senha</label><input type="password" value={f.pass2} onChange={set('pass2')} placeholder="repita a senha"/></div>
-        <button className="btn" onClick={submit}>Criar conta e entrar</button>
+        <button className="btn" onClick={submit}>Enviar cadastro para aprovação</button>
         <button className="btn ghost" style={{marginTop:10}} onClick={back}>Voltar ao login</button>
       </div>
     </div></div>
@@ -463,11 +709,11 @@ function ForgotPassword({data,setData,onDone,back}){
 }
 
 /* ===== TOPBAR / NAV ===== */
-function TopBar({title,sub,roleName,back}){
+function TopBar({title,sub,roleName,back,switchBtn}){
   return (
     <div className="topbar"><Knot size={32}/>
       <div className="title">{title}{sub&&<small>{sub}</small>}</div>
-      <span className="role-pill">{roleName}</span>
+      {switchBtn||<span className="role-pill">{roleName}</span>}
       <button className="switch" onClick={back}>Sair</button>
     </div>
   );
@@ -490,32 +736,32 @@ function RulesModal({rules,title,onClose}){
 }
 
 /* ===== MORADOR ===== */
-function Morador({data,setData,toast,openImg,me,back}){
+function Morador({data,setData,toast,openImg,me,back,switchBtn}){
   const [tab,setTab]=useState('avisos');
-  const [seenIds,setSeenIds]=useState(data.announcements.slice(1).map(a=>a.id));
-  const newAnn=data.announcements.find(a=>!seenIds.includes(a.id));
-  const myReqs=[...data.moveRequests,...data.workRequests].filter(r=>r.apt===me.apt&&r.torre===me.torre);
+  const ackedIds=useMemo(()=>new Set((data.acks||[]).filter(a=>a.userId===me.id).map(a=>a.annId)),[data.acks,me.id]);
+  const newAnn=(data.announcements.length&&!ackedIds.has(data.announcements[0].id))?data.announcements[0]:null;
+  const ack=()=>{if(!newAnn)return;setData(d=>({...d,acks:[...(d.acks||[]),{userId:me.id,annId:newAnn.id,at:nowStr()}]}))};
   const myPkgs=data.packages.filter(p=>p.apt===me.apt&&p.torre===me.torre);
   const pendPkg=myPkgs.filter(p=>p.status==='aguardando').length;
-  const tabs=[{id:'avisos',ic:'📢',label:'Avisos'},{id:'limpeza',ic:'🧽',label:'Limpeza'},{id:'encomendas',ic:'📦',label:'Encomendas',badge:pendPkg},{id:'solicitar',ic:'➕',label:'Solicitar'},{id:'minhas',ic:'📋',label:'Minhas'}];
+  const tabs=[{id:'avisos',ic:'📢',label:'Avisos'},{id:'limpeza',ic:'🧽',label:'Limpeza'},{id:'solicitar',ic:'➕',label:'Solicitar'},{id:'acompanhar',ic:'📋',label:'Acompanhar',badge:pendPkg},{id:'docs',ic:'📄',label:'Docs'}];
   return (
     <>
-      <TopBar title="Torre Passaré" sub={'Apto '+me.apt+' · Torre '+me.torre} roleName="Morador" back={back}/>
+      <TopBar title="Torre Passaré" sub={'Apto '+me.apt+' · Torre '+me.torre} roleName="Morador" back={back} switchBtn={switchBtn}/>
       <div className="scroll">
         {tab==='avisos' && <MoradorAvisos data={data} openImg={openImg}/>}
         {tab==='limpeza' && <MoradorLimpeza data={data} openImg={openImg}/>}
-        {tab==='encomendas' && <MoradorEncomendas pkgs={myPkgs} me={me} setData={setData} toast={toast}/>}
         {tab==='solicitar' && <MoradorSolicitar me={me} setData={setData} toast={toast}/>}
-        {tab==='minhas' && (myReqs.length? <><div className="page-head"><h2>Minhas solicitações</h2><p>Status dos seus pedidos</p></div>{myReqs.map(r=><ReqCard key={r.id} r={r} view="morador"/>)}</> : <Empty ic="📋" msg="Você ainda não fez solicitações."/>)}
+        {tab==='acompanhar' && <MoradorAcompanhar data={data} me={me} setData={setData} toast={toast} openImg={openImg}/>}
+        {tab==='docs' && <DocsList docs={data.documents}/>}
       </div>
       <Nav tabs={tabs} active={tab} setActive={setTab}/>
       {newAnn && tab==='avisos' && (
-        <div className="modal-bg" onClick={()=>setSeenIds(data.announcements.map(a=>a.id))}>
+        <div className="modal-bg" onClick={ack}>
           <div className="modal center" onClick={e=>e.stopPropagation()}><div className="popup-card">
             <div className="popup-ic">📢</div><h3>Novo comunicado</h3><div className="pd">{newAnn.date}</div>
             {newAnn.image && <img className="pimg" src={newAnn.image}/>}
             <div className="pt"><b>{newAnn.title}</b><br/>{newAnn.text}</div>
-            <button className="btn" onClick={()=>setSeenIds(data.announcements.map(a=>a.id))}>Ok, li o aviso</button>
+            <button className="btn" onClick={ack}>Ok, li o aviso</button>
           </div></div>
         </div>
       )}
@@ -544,108 +790,126 @@ function MoradorLimpeza({data,openImg}){
         </div></div>);})}</>);
 }
 
-/* ---- Morador Encomendas (retirada por código) ---- */
-function MoradorEncomendas({pkgs,me,setData,toast}){
-  const [confirming,setConfirming]=useState(null);
+/* ---- Morador Encomendas (mostra o código ao porteiro) ---- */
+function MoradorEncomendas({pkgs}){
   const pend=pkgs.filter(p=>p.status==='aguardando');
   const done=pkgs.filter(p=>p.status==='entregue');
-  const confirm=(pkg,code)=>{
-    if(code.trim()!==pkg.code){return false}
-    setData(d=>({...d,packages:d.packages.map(p=>p.id===pkg.id?{...p,status:'entregue',pickedUpBy:me.name,pickedUpAt:nowStr()}:p)}));
-    toast('Retirada confirmada');setConfirming(null);return true;
-  };
   return (
     <>
-      <div className="page-head"><h2>Minhas encomendas</h2><p>Confirme a retirada na portaria com o código</p></div>
+      <div className="page-head"><h2>Minhas encomendas</h2><p>Informe o código ao porteiro para retirar</p></div>
       {pend.length===0 && done.length===0 && <Empty ic="📦" msg="Nenhuma encomenda registrada para o seu apartamento."/>}
       {pend.length>0 && <><div className="section-label">Aguardando retirada</div>
         {pend.map(p=>(
           <div key={p.id} className="pkg-card">
-            <div className="req-top"><div><div className="who">📦 {p.carrier}</div><div className="meta">{p.type} · chegou em {p.registeredAt}</div></div>
-              <span className="status st-pend">⏳ Na portaria</span></div>
+            <div className="req-top"><div><div className="who">📦 {p.carrier}</div><div className="meta">{p.type} · chegou em {p.registeredAt}</div></div><span className="status st-pend">⏳ Na portaria</span></div>
             {p.tracking && <div className="req-line"><b>Rastreio</b> {p.tracking}</div>}
-            <div className="hint" style={{margin:'10px 0 0'}}>🔑 Vá à portaria, pegue a encomenda e peça o <b>código de retirada</b> ao porteiro. Digite-o aqui para comprovar.</div>
-            <button className="btn dark sm" style={{width:'100%',marginTop:12}} onClick={()=>setConfirming(p)}>Confirmar retirada</button>
+            <div className="code-wrap"><div className="cl">Seu código de retirada — informe ao porteiro</div><div className="code-pill">{p.code}</div></div>
+            <div className="hint" style={{margin:'10px 0 0'}}>🔑 Vá até a portaria e diga este código ao porteiro. Ele registra a entrega e libera sua encomenda.</div>
           </div>))}</>}
       {done.length>0 && <><div className="section-label">Já retiradas</div>
-        {done.map(p=>(
-          <div key={p.id} className="pkg-card done">
-            <div className="req-top"><div><div className="who">📦 {p.carrier}</div><div className="meta">{p.type}</div></div><span className="status st-feita">✓ Retirada</span></div>
-            {p.tracking && <div className="req-line"><b>Rastreio</b> {p.tracking}</div>}
-            <div className="note-box" style={{background:'#e6eef7',color:'#2f5d86'}}>Retirada em {p.pickedUpAt} por {p.pickedUpBy}</div>
-          </div>))}</>}
-      {confirming && <PickupModal pkg={confirming} onConfirm={confirm} onClose={()=>setConfirming(null)}/>}
+        {done.map(p=>(<div key={p.id} className="pkg-card done">
+          <div className="req-top"><div><div className="who">📦 {p.carrier}</div><div className="meta">{p.type}</div></div><span className="status st-feita">✓ Retirada</span></div>
+          {p.tracking && <div className="req-line"><b>Rastreio</b> {p.tracking}</div>}
+          <div className="note-box" style={{background:'#e6eef7',color:'#2f5d86'}}>Retirada em {p.pickedUpAt}{p.deliveredBy?(' · registrada por '+p.deliveredBy):''}</div>
+        </div>))}</>}
     </>
   );
-}
-function PickupModal({pkg,onConfirm,onClose}){
-  const [code,setCode]=useState('');const [err,setErr]=useState(false);
-  const go=()=>{const ok=onConfirm(pkg,code);if(!ok)setErr(true)};
-  return (<div className="modal-bg" onClick={onClose}><div className="modal center" onClick={e=>e.stopPropagation()}>
-    <div className="popup-card"><div className="popup-ic">🔑</div><h3>Confirmar retirada</h3>
-      <div className="pd">{pkg.carrier} · {pkg.type}</div>
-      <p style={{fontSize:13.5,color:'#374039',marginBottom:14}}>Digite o código de 4 dígitos informado pelo porteiro:</p>
-      {err && <div className="err">Código incorreto. Confira com o porteiro.</div>}
-      <input className="otp" style={{width:'100%',padding:'12px',border:'1.5px solid var(--line)',borderRadius:11,marginBottom:14}} inputMode="numeric" maxLength={4} placeholder="0000" value={code} onChange={e=>{setCode(e.target.value.replace(/\D/g,''));setErr(false)}}/>
-      <button className="btn" disabled={code.length!==4} onClick={go}>Confirmar</button>
-      <button className="btn ghost" style={{marginTop:10}} onClick={onClose}>Cancelar</button>
-    </div></div></div>);
 }
 
 function MoradorSolicitar({me,setData,toast}){
   const [type,setType]=useState(null);
   if(type==='move') return <MoveForm me={me} onCancel={()=>setType(null)} onSubmit={req=>{setData(d=>({...d,moveRequests:[req,...d.moveRequests]}));setType(null);toast('Solicitação de mudança enviada')}}/>;
   if(type==='work') return <WorkForm me={me} onCancel={()=>setType(null)} onSubmit={req=>{setData(d=>({...d,workRequests:[req,...d.workRequests]}));setType(null);toast('Solicitação de obra enviada')}}/>;
-  return (<><div className="page-head"><h2>Nova solicitação</h2><p>Apartamento {me.apt} · Torre {me.torre}</p></div>
-    <div className="card"><div className="card-pad"><div style={{display:'flex',gap:14,alignItems:'center'}}><div className="area-ic">🚚</div>
-      <div style={{flex:1}}><div style={{fontWeight:800,color:'var(--green-900)'}}>Autorização de mudança</div><div style={{fontSize:12.5,color:'var(--muted)',marginTop:2}}>Entrada ou saída de mobília</div></div></div>
-      <button className="btn" style={{marginTop:14}} onClick={()=>setType('move')}>Solicitar mudança</button></div></div>
-    <div className="card"><div className="card-pad"><div style={{display:'flex',gap:14,alignItems:'center'}}><div className="area-ic">🔨</div>
-      <div style={{flex:1}}><div style={{fontWeight:800,color:'var(--green-900)'}}>Autorização de obra</div><div style={{fontSize:12.5,color:'var(--muted)',marginTop:2}}>Reformas e prestadores</div></div></div>
-      <button className="btn" style={{marginTop:14}} onClick={()=>setType('work')}>Solicitar obra</button></div></div>
-    <div className="hint">💡 Faça o pedido com pelo menos 24h de antecedência. O síndico irá aprovar ou reprovar.</div></>);
+  if(type==='ticket') return <TicketForm me={me} onCancel={()=>setType(null)} onSubmit={req=>{setData(d=>({...d,tickets:[req,...d.tickets]}));setType(null);toast('Chamado de manutenção aberto')}}/>;
+  if(type==='visitor') return <VisitorForm me={me} onCancel={()=>setType(null)} onSubmit={req=>{setData(d=>({...d,visitors:[req,...d.visitors]}));setType(null);toast('Visitante pré-autorizado')}}/>;
+  const card=(ic,title,sub,t)=>(<div className="card"><div className="card-pad"><div style={{display:'flex',gap:14,alignItems:'center'}}><div className="area-ic">{ic}</div>
+    <div style={{flex:1}}><div style={{fontWeight:800,color:'var(--green-900)'}}>{title}</div><div style={{fontSize:12.5,color:'var(--muted)',marginTop:2}}>{sub}</div></div></div>
+    <button className="btn" style={{marginTop:14}} onClick={()=>setType(t)}>{title}</button></div></div>);
+  return (<><div className="page-head"><h2>Solicitar</h2><p>Apartamento {me.apt} · Torre {me.torre}</p></div>
+    {card('🚚','Autorização de mudança','Entrada ou saída de mobília','move')}
+    {card('🔨','Autorização de obra','Reformas e prestadores','work')}
+    {card('🔧','Chamado de manutenção','Abrir ocorrência para o síndico','ticket')}
+    {card('🚶','Autorizar visitante','Pré-autorização para a portaria','visitor')}
+  </>);
 }
 function MoveForm({me,onCancel,onSubmit}){
   const [f,setF]=useState({tipoMov:'Entrada',data:'',hora:'',empresa:'',placa:''});
-  const [agreed,setAgreed]=useState(false);const [rules,setRules]=useState(false);
-  const set=k=>e=>setF({...f,[k]:e.target.value});
-  const valid=f.data&&f.hora&&agreed;
-  const submit=()=>onSubmit({id:Date.now(),kind:'move',apt:me.apt,torre:me.torre,solicitante:me.name,tipoMov:f.tipoMov,data:f.data,hora:f.hora,empresa:f.empresa,placa:f.placa,nome:me.name,cpf:me.cpf||'—',agreed:true,status:'pendente',note:'',rejectReason:'',realizada:null,createdAt:todayStr()});
+  const [workers,setWorkers]=useState([{name:'',doc:''}]);
+  const [agreed,setAgreed]=useState(false);const [rules,setRules]=useState(false);const [err,setErr]=useState('');
+  const set=k=>e=>{setF({...f,[k]:e.target.value});setErr('')};
+  const setW=(i,k)=>e=>{const c=[...workers];c[i][k]=k==='doc'?fmtCpf(e.target.value):e.target.value;setWorkers(c)};
+  const submit=()=>{
+    const ve=validateMove(f);if(ve){setErr(ve);return}
+    if(!agreed){setErr('É necessário concordar com as regras.');return}
+    const ws=workers.filter(w=>w.name.trim());
+    onSubmit({id:Date.now(),kind:'move',apt:me.apt,torre:me.torre,solicitante:me.name,tipoMov:f.tipoMov,data:f.data,hora:f.hora,empresa:f.empresa,placa:f.placa,workers:ws,nome:me.name,cpf:me.cpf||'—',agreed:true,status:'pendente',note:'',rejectReason:'',realizada:null,createdAt:todayStr()});
+  };
   return (<><div className="page-head"><h2>🚚 Mudança</h2><p>Apartamento {me.apt} · Torre {me.torre}</p></div>
     <div className="card"><div className="card-pad">
       <div className="field"><label>Tipo de mudança</label><div className="seg">{['Entrada','Saída'].map(t=><button key={t} className={f.tipoMov===t?'on':''} onClick={()=>setF({...f,tipoMov:t})}>{t}</button>)}</div></div>
-      <div className="row2"><div className="field"><label>Data</label><input placeholder="dd/mm/aaaa" value={f.data} onChange={set('data')}/></div><div className="field"><label>Horário</label><input placeholder="08:00" value={f.hora} onChange={set('hora')}/></div></div>
+      <div className="row2"><div className="field"><label>Data</label><input inputMode="numeric" placeholder="dd/mm/aaaa" value={f.data} onChange={e=>{setF({...f,data:fmtDate(e.target.value)});setErr('')}}/></div><div className="field"><label>Horário</label><input inputMode="numeric" placeholder="08:00" value={f.hora} onChange={e=>{setF({...f,hora:fmtTime(e.target.value)});setErr('')}}/></div></div>
       <div className="field"><label>Empresa de mudança</label><input placeholder="Nome da empresa" value={f.empresa} onChange={set('empresa')}/></div>
       <div className="field"><label>Placa do veículo</label><input placeholder="ABC-1D23" value={f.placa} onChange={set('placa')}/></div>
+      <div className="divider"></div>
+      <label style={{fontSize:12.5,fontWeight:700,color:'var(--green-800)',display:'block',marginBottom:8}}>Trabalhadores da empresa de mudança</label>
+      {workers.map((w,i)=>(<div key={i} className="svc-block">{workers.length>1 && <button className="rm" onClick={()=>setWorkers(workers.filter((_,j)=>j!==i))}>remover</button>}
+        <div className="field" style={{marginBottom:8}}><input placeholder="Nome do trabalhador" value={w.name} onChange={setW(i,'name')}/></div>
+        <div className="field" style={{marginBottom:0}}><input inputMode="numeric" placeholder="CPF" value={w.doc} onChange={setW(i,'doc')}/></div></div>))}
+      <button className="btn ghost sm" style={{width:'100%'}} onClick={()=>setWorkers([...workers,{name:'',doc:''}])}>+ Adicionar trabalhador</button>
+      <div className="hint" style={{margin:'12px 0 0'}}>🕐 Mudanças: segunda a sábado, das 08h às 18h, com no mínimo 24h de antecedência.</div>
     </div></div>
-    <div style={{margin:'0 16px'}}><div className={'chk'+(agreed?' on':'')} onClick={()=>setAgreed(!agreed)}><div className="box">{agreed?'✓':''}</div>
+    {err && <div className="err" style={{margin:'0 16px 4px'}}>{err}</div>}
+    <div style={{margin:'8px 16px 0'}}><div className={'chk'+(agreed?' on':'')} onClick={()=>{setAgreed(!agreed);setErr('')}}><div className="box">{agreed?'✓':''}</div>
       <div className="txt">Li, compreendi e <b>concordo com as regras do regimento interno</b> aplicáveis à mudança. <a onClick={e=>{e.stopPropagation();setRules(true)}}>Ver regras</a></div></div></div>
-    <div style={{padding:16,display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} onClick={onCancel}>Cancelar</button><button className="btn" style={{flex:2}} disabled={!valid} onClick={submit}>Enviar solicitação</button></div>
+    <div style={{padding:16,display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} onClick={onCancel}>Cancelar</button><button className="btn" style={{flex:2}} onClick={submit}>Enviar solicitação</button></div>
     {rules && <RulesModal rules={MOVE_RULES} title="Regras — Mudanças" onClose={()=>setRules(false)}/>}</>);
 }
 function WorkForm({me,onCancel,onSubmit}){
   const [f,setF]=useState({tipoObra:'',dataInicio:'',dataFim:''});
-  const [svcs,setSvcs]=useState([{servico:'',prestador:'',doc:'',tel:''}]);
-  const [agreed,setAgreed]=useState(false);const [rules,setRules]=useState(false);
-  const set=k=>e=>setF({...f,[k]:e.target.value});
-  const setSvc=(i,k)=>e=>{const c=[...svcs];c[i][k]=e.target.value;setSvcs(c)};
-  const valid=f.tipoObra&&f.dataInicio&&f.dataFim&&agreed;
-  const submit=()=>onSubmit({id:Date.now(),kind:'work',apt:me.apt,torre:me.torre,solicitante:me.name,tipoObra:f.tipoObra,dataInicio:f.dataInicio,dataFim:f.dataFim,servicos:svcs.filter(s=>s.servico||s.prestador),nome:me.name,cpf:me.cpf||'—',agreed:true,status:'pendente',note:'',rejectReason:'',realizada:null,createdAt:todayStr()});
+  const [svcs,setSvcs]=useState([{servico:'',prestador:'',doc:'',tel:'',executores:[{name:'',cpf:''}]}]);
+  const [agreed,setAgreed]=useState(false);const [rules,setRules]=useState(false);const [err,setErr]=useState('');
+  const set=k=>e=>{setF({...f,[k]:e.target.value});setErr('')};
+  const setSvc=(i,k)=>e=>{const c=[...svcs];let v=e.target.value;if(k==='doc')v=fmtDoc(v);if(k==='tel')v=fmtPhone(v);c[i][k]=v;setSvcs(c);setErr('')};
+  const setExec=(i,j,k)=>e=>{const c=[...svcs];c[i].executores[j][k]=k==='cpf'?fmtCpf(e.target.value):e.target.value;setSvcs(c);setErr('')};
+  const addExec=i=>{const c=[...svcs];c[i].executores.push({name:'',cpf:''});setSvcs(c)};
+  const rmExec=(i,j)=>{const c=[...svcs];c[i].executores=c[i].executores.filter((_,x)=>x!==j);setSvcs(c)};
+  const submit=()=>{
+    const ve=validateWork(f);if(ve){setErr(ve);return}
+    for(const s of svcs){
+      if(!s.servico.trim()||!s.prestador.trim()){setErr('Preencha o serviço e o prestador de cada item.');return}
+      if(!validDoc(s.doc)){setErr('Documento do prestador inválido. CPF deve ter 11 dígitos e CNPJ 14.');return}
+      if(!validPhone(s.tel)){setErr('Telefone inválido. Use DDD + número (11 dígitos).');return}
+      const execs=s.executores.filter(x=>x.name.trim()&&digits(x.cpf).length===11);
+      if(execs.length===0){setErr('Informe ao menos um executor (PF) com nome e CPF (11 dígitos) por prestador.');return}
+    }
+    if(!agreed){setErr('É necessário concordar com as regras.');return}
+    const clean=svcs.map(s=>({...s,executores:s.executores.filter(x=>x.name.trim())}));
+    onSubmit({id:Date.now(),kind:'work',apt:me.apt,torre:me.torre,solicitante:me.name,tipoObra:f.tipoObra,dataInicio:f.dataInicio,dataFim:f.dataFim,servicos:clean,nome:me.name,cpf:me.cpf||'—',agreed:true,status:'pendente',note:'',rejectReason:'',realizada:null,createdAt:todayStr()});
+  };
   return (<><div className="page-head"><h2>🔨 Obra / Reforma</h2><p>Apartamento {me.apt} · Torre {me.torre}</p></div>
     <div className="card"><div className="card-pad">
       <div className="field"><label>Tipo de obra</label><input placeholder="Ex: reforma de banheiro" value={f.tipoObra} onChange={set('tipoObra')}/></div>
-      <div className="row2"><div className="field"><label>Início</label><input placeholder="dd/mm/aaaa" value={f.dataInicio} onChange={set('dataInicio')}/></div><div className="field"><label>Fim</label><input placeholder="dd/mm/aaaa" value={f.dataFim} onChange={set('dataFim')}/></div></div>
+      <div className="row2"><div className="field"><label>Início</label><input inputMode="numeric" placeholder="dd/mm/aaaa" value={f.dataInicio} onChange={e=>{setF({...f,dataInicio:fmtDate(e.target.value)});setErr('')}}/></div><div className="field"><label>Fim</label><input inputMode="numeric" placeholder="dd/mm/aaaa" value={f.dataFim} onChange={e=>{setF({...f,dataFim:fmtDate(e.target.value)});setErr('')}}/></div></div>
       <div className="divider"></div>
       <label style={{fontSize:12.5,fontWeight:700,color:'var(--green-800)',display:'block',marginBottom:8}}>Serviços e prestadores</label>
       {svcs.map((s,i)=>(<div key={i} className="svc-block">{svcs.length>1 && <button className="rm" onClick={()=>setSvcs(svcs.filter((_,j)=>j!==i))}>remover</button>}
         <div className="field" style={{marginBottom:8}}><input placeholder="Serviço (ex: hidráulica)" value={s.servico} onChange={setSvc(i,'servico')}/></div>
         <div className="field" style={{marginBottom:8}}><input placeholder="Prestador / empresa" value={s.prestador} onChange={setSvc(i,'prestador')}/></div>
-        <div className="row2"><div className="field" style={{marginBottom:0}}><input placeholder="CPF/CNPJ" value={s.doc} onChange={setSvc(i,'doc')}/></div><div className="field" style={{marginBottom:0}}><input placeholder="Telefone" value={s.tel} onChange={setSvc(i,'tel')}/></div></div></div>))}
-      <button className="btn ghost sm" style={{width:'100%'}} onClick={()=>setSvcs([...svcs,{servico:'',prestador:'',doc:'',tel:''}])}>+ Adicionar prestador</button>
+        <div className="row2"><div className="field" style={{marginBottom:8}}><input inputMode="numeric" placeholder="CPF (11) ou CNPJ (14)" value={s.doc} onChange={setSvc(i,'doc')}/></div><div className="field" style={{marginBottom:8}}><input inputMode="numeric" placeholder="(DDD) número" value={s.tel} onChange={setSvc(i,'tel')}/></div></div>
+        <div style={{fontSize:11.5,fontWeight:700,color:'var(--green-800)',margin:'2px 0 6px'}}>Executores (PF) <span className="req-mark">*obrigatório</span></div>
+        {s.executores.map((x,j)=>(<div key={j} className="row2" style={{marginBottom:6,alignItems:'center'}}>
+          <div className="field" style={{marginBottom:0}}><input placeholder="Nome do executor" value={x.name} onChange={setExec(i,j,'name')}/></div>
+          <div className="field" style={{marginBottom:0,position:'relative'}}><input inputMode="numeric" placeholder="CPF" value={x.cpf} onChange={setExec(i,j,'cpf')}/>{s.executores.length>1 && <span onClick={()=>rmExec(i,j)} style={{position:'absolute',right:-4,top:-16,color:'var(--red)',fontSize:11,fontWeight:700,cursor:'pointer'}}>remover</span>}</div>
+        </div>))}
+        <button className="btn ghost sm" style={{width:'100%',marginTop:4}} onClick={()=>addExec(i)}>+ Adicionar executor</button>
+      </div>))}
+      <button className="btn ghost sm" style={{width:'100%'}} onClick={()=>setSvcs([...svcs,{servico:'',prestador:'',doc:'',tel:'',executores:[{name:'',cpf:''}]}])}>+ Adicionar prestador</button>
+      <div className="hint" style={{margin:'12px 0 0'}}>🕐 Obras: segunda a sexta, das 08h às 18h. Mesmo sendo empresa, informe os profissionais (PF) que vão executar.</div>
     </div></div>
-    <div style={{margin:'0 16px'}}><div className={'chk'+(agreed?' on':'')} onClick={()=>setAgreed(!agreed)}><div className="box">{agreed?'✓':''}</div>
+    {err && <div className="err" style={{margin:'0 16px 4px'}}>{err}</div>}
+    <div style={{margin:'8px 16px 0'}}><div className={'chk'+(agreed?' on':'')} onClick={()=>{setAgreed(!agreed);setErr('')}}><div className="box">{agreed?'✓':''}</div>
       <div className="txt">Li, compreendi e <b>concordo com as regras do regimento interno</b> aplicáveis a obras. <a onClick={e=>{e.stopPropagation();setRules(true)}}>Ver regras</a></div></div></div>
-    <div style={{padding:16,display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} onClick={onCancel}>Cancelar</button><button className="btn" style={{flex:2}} disabled={!valid} onClick={submit}>Enviar solicitação</button></div>
+    <div style={{padding:16,display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} onClick={onCancel}>Cancelar</button><button className="btn" style={{flex:2}} onClick={submit}>Enviar solicitação</button></div>
     {rules && <RulesModal rules={WORK_RULES} title="Regras — Obras e Reformas" onClose={()=>setRules(false)}/>}</>);
 }
 
@@ -656,8 +920,23 @@ function ReqCard({r,view,actions}){
   return (<div className={'req-card '+cls}>
     <div className="req-top"><div><div className="who">{isMove?'🚚':'🔨'} {r.solicitante}</div><div className="meta">Apto {r.apt} · Torre {r.torre} · {isMove?'Mudança':'Obra'}</div></div>
       <div style={{display:'flex',flexDirection:'column',gap:4,alignItems:'flex-end'}}><StatusPill s={r.status}/>{r.realizada && <span className="status st-feita">🏁 Realizada</span>}</div></div>
-    {isMove?<><div className="req-line"><b>Tipo</b> {r.tipoMov}</div><div className="req-line"><b>Data</b> {r.data} às {r.hora}</div>{r.empresa && <div className="req-line"><b>Empresa</b> {r.empresa}</div>}{r.placa && <div className="req-line"><b>Placa</b> {r.placa}</div>}</>
-      :<><div className="req-line"><b>Obra</b> {r.tipoObra}</div><div className="req-line"><b>Período</b> {r.dataInicio} → {r.dataFim}</div>{r.servicos&&r.servicos.length>0 && <div className="req-line"><b>Serviços</b> {r.servicos.map(s=>s.servico||s.prestador).filter(Boolean).join(', ')}</div>}</>}
+    {isMove?<>
+      <div className="req-line"><b>Tipo</b> {r.tipoMov}</div>
+      <div className="req-line"><b>Data</b> {r.data} às {r.hora}</div>
+      {r.empresa && <div className="req-line"><b>Empresa</b> {r.empresa}</div>}
+      {r.placa && <div className="req-line"><b>Placa</b> {r.placa}</div>}
+      {r.workers&&r.workers.length>0 && <div className="note-box"><b>Trabalhadores da empresa:</b>{r.workers.map((w,i)=><div key={i} style={{marginTop:3}}>• {w.name}{w.doc?(' — CPF '+w.doc):''}</div>)}</div>}
+    </>:<>
+      <div className="req-line"><b>Obra</b> {r.tipoObra}</div>
+      <div className="req-line"><b>Período</b> {r.dataInicio} → {r.dataFim}</div>
+      {(r.servicos||[]).map((s,i)=>(<div key={i} className="note-box" style={{background:'#f1f5ef'}}>
+        <div><b>Serviço:</b> {s.servico}</div>
+        <div><b>Prestador:</b> {s.prestador}{s.doc?(' · '+(digits(s.doc).length===14?'CNPJ ':'CPF ')+s.doc):''}</div>
+        {s.tel && <div><b>Telefone:</b> {s.tel}</div>}
+        {s.executores&&s.executores.length>0 && <div style={{marginTop:4}}><b>Executores (PF):</b>{s.executores.map((x,j)=><div key={j} style={{marginLeft:6}}>• {x.name}{x.cpf?(' — CPF '+x.cpf):''}</div>)}</div>}
+      </div>))}
+    </>}
+    <div className="req-line"><b>CPF solic.</b> {r.cpf}</div>
     {r.note && <div className="note-box"><b>Síndico:</b> {r.note}</div>}
     {r.rejectReason && <div className="note-box reject"><b>Motivo da reprovação:</b> {r.rejectReason}</div>}
     {r.realizada && <div className="note-box" style={{background:'#e6eef7',color:'#2f5d86'}}><b>Registrado na portaria:</b> {r.realizada}</div>}
@@ -679,6 +958,8 @@ function Sindico({data,setData,toast,openImg,me,back}){
       <div className="scroll">
         {sub==='areas' ? <AreasManager data={data} setData={setData} toast={toast} back={()=>setSub(null)}/> :
          sub==='equipe' ? <EquipeManager data={data} setData={setData} toast={toast} me={me} back={()=>setSub(null)}/> :
+         sub==='chamados' ? <SindicoChamados data={data} setData={setData} toast={toast} openImg={openImg} back={()=>setSub(null)}/> :
+         sub==='documentos' ? <DocsManager data={data} setData={setData} toast={toast} back={()=>setSub(null)}/> :
          tab==='inicio' ? <SindicoInicio data={data} setTab={setTab} setSub={setSub}/> :
          tab==='mudancas' ? <SindicoList kind="move" list={data.moveRequests} decide={decide}/> :
          tab==='obras' ? <SindicoList kind="work" list={data.workRequests} decide={decide}/> :
@@ -693,15 +974,21 @@ function Shortcut({ic,t,s,on}){return <div className="card" onClick={on}><div cl
 function SindicoInicio({data,setTab,setSub}){
   const pm=data.moveRequests.filter(r=>r.status==='pendente').length;const po=data.workRequests.filter(r=>r.status==='pendente').length;
   const aprov=[...data.moveRequests,...data.workRequests].filter(r=>r.status==='aprovada').length;
+  const openTk=data.tickets.filter(t=>t.status==='aberto'||t.status==='andamento').length;
+  const pendUsers=data.users.filter(u=>u.status==='pendente').length;
   return (<><div className="page-head"><h2>Olá, Síndico 👋</h2><p>Resumo do condomínio hoje</p></div>
-    <div className="stat-row"><div className="stat amber"><div className="n">{pm+po}</div><div className="l">Pendentes</div></div><div className="stat green"><div className="n">{aprov}</div><div className="l">Aprovadas</div></div><div className="stat"><div className="n">{data.areas.length}</div><div className="l">Áreas</div></div></div>
+    <div className="stat-row"><div className="stat amber"><div className="n">{pm+po}</div><div className="l">Pendentes</div></div><div className="stat"><div className="n">{openTk}</div><div className="l">Chamados</div></div><div className="stat green"><div className="n">{aprov}</div><div className="l">Aprovadas</div></div></div>
     <div className="section-label">Precisa da sua análise</div>
+    {pendUsers>0 && <Shortcut ic="🆕" t={pendUsers+" cadastro(s) aguardando aprovação"} s="Aprovar novos moradores" on={()=>setSub('equipe')}/>}
     {pm>0 && <Shortcut ic="🚚" t={pm+" mudança(s) pendente(s)"} s="Toque para revisar" on={()=>setTab('mudancas')}/>}
     {po>0 && <Shortcut ic="🔨" t={po+" obra(s) pendente(s)"} s="Toque para revisar" on={()=>setTab('obras')}/>}
-    {pm+po===0 && <Empty ic="✅" msg="Tudo em dia! Nenhuma solicitação pendente."/>}
+    {openTk>0 && <Shortcut ic="🔧" t={openTk+" chamado(s) de manutenção"} s="Acompanhar e atualizar status" on={()=>setSub('chamados')}/>}
+    {pm+po+openTk+pendUsers===0 && <Empty ic="✅" msg="Tudo em dia! Nada pendente."/>}
     <div className="section-label">Gestão</div>
+    <Shortcut ic="🔧" t="Chamados de manutenção" s="Ocorrências abertas pelos moradores" on={()=>setSub('chamados')}/>
+    <Shortcut ic="📄" t="Documentos" s="Regimento, atas e convenção" on={()=>setSub('documentos')}/>
     <Shortcut ic="🔲" t="Áreas e QR Codes" s="Mapear áreas e gerar os QR Codes" on={()=>setSub('areas')}/>
-    <Shortcut ic="👥" t="Equipe e acessos" s="Porteiros, subsíndicos e limpeza" on={()=>setSub('equipe')}/>
+    <Shortcut ic="👥" t="Equipe e acessos" s="Cadastros, porteiros, subsíndicos, ASG" on={()=>setSub('equipe')}/>
     <Shortcut ic="🧽" t="Serviços da limpeza" s="Ver registros dos ASGs" on={()=>setTab('limpeza')}/>
     <Shortcut ic="📢" t="Publicar comunicado" s="Notifica todos os moradores" on={()=>setTab('avisos')}/>
   </>);
@@ -739,9 +1026,9 @@ function SindicoLimpeza({data,openImg}){
         {l.photos&&l.photos.length>0 && <div className="photo-strip">{l.photos.map((p,i)=><img key={i} src={p} onClick={()=>openImg(p)}/>)}</div>}</div></div>))}</>);
 }
 function SindicoAvisos({data,setData,toast,openImg}){
-  const [t,setT]=useState('');const [body,setBody]=useState('');const [tag,setTag]=useState('info');const [img,setImg]=useState(null);const fileRef=useRef();
+  const [t,setT]=useState('');const [body,setBody]=useState('');const [tag,setTag]=useState('info');const [img,setImg]=useState(null);const [saving,setSaving]=useState(false);const fileRef=useRef();
   const onFile=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>setImg(r.result);r.readAsDataURL(f)};
-  const publish=()=>{if(!t||!body)return;const a={id:Date.now(),title:t,text:body,tag,date:nowStr(),author:'Síndico',image:img};setData(d=>({...d,announcements:[a,...d.announcements]}));setT('');setBody('');setImg(null);toast('Comunicado publicado e notificado')};
+  const publish=async()=>{if(!t||!body)return;setSaving(true);const image=img?await pushPhoto(img,'comunicados','aviso'):null;const a={id:Date.now(),title:t,text:body,tag,date:nowStr(),author:'Síndico',image};setData(d=>({...d,announcements:[a,...d.announcements]}));setT('');setBody('');setImg(null);setSaving(false);toast('Comunicado publicado e notificado')};
   return (<><div className="page-head"><h2>Novo comunicado</h2><p>Aparece como pop-up para todos os moradores</p></div>
     <div className="card"><div className="card-pad">
       <div className="field"><label>Categoria</label><div className="seg">{[['info','Informe'],['urg','Urgente'],['event','Evento']].map(([v,l])=><button key={v} className={tag===v?'on':''} onClick={()=>setTag(v)}>{l}</button>)}</div></div>
@@ -749,7 +1036,7 @@ function SindicoAvisos({data,setData,toast,openImg}){
       <div className="field"><label>Mensagem</label><textarea placeholder="Escreva o comunicado..." value={body} onChange={e=>setBody(e.target.value)}/></div>
       <div className="field"><label>Imagem (opcional)</label><input ref={fileRef} type="file" accept="image/*" style={{display:'none'}} onChange={onFile}/>
         {img?<div className="photo-prev"><div className="pp"><img src={img}/><button className="x" onClick={()=>setImg(null)}>×</button></div></div>:<div className="add-photo" onClick={()=>fileRef.current.click()}><span className="ic">🖼️</span>Adicionar imagem</div>}</div>
-      <button className="btn" disabled={!t||!body} onClick={publish}>Publicar e notificar</button>
+      <button className="btn" disabled={!t||!body||saving} onClick={publish}>{saving?'Publicando…':'Publicar e notificar'}</button>
     </div></div>
     <div className="section-label">Últimos comunicados</div>
     {data.announcements.slice(0,4).map(a=>(<div key={a.id} className="ann"><div className="ann-bar" style={{background:tagColor(a.tag)}}></div>{a.image && <img className="ann-img" src={a.image} onClick={()=>openImg(a.image)}/>}<div className="ann-body"><div className="a-title" style={{fontSize:15}}>{a.title} <span className={'tag '+a.tag}>{tagLabel(a.tag)}</span></div><div className="a-date">{a.date}</div></div></div>))}</>);
@@ -791,8 +1078,20 @@ function EquipeManager({data,setData,toast,me,back}){
     setF({name:'',email:'',pass:'',cpf:'',role:'porteiro'});toast('Acesso criado');
   };
   const remove=id=>setData(d=>({...d,users:d.users.filter(u=>u.id!==id)}));
+  const approve=id=>{setData(d=>({...d,users:d.users.map(u=>u.id===id?{...u,status:'ativo'}:u)}));toast('Cadastro aprovado')};
+  const reject=id=>{setData(d=>({...d,users:d.users.filter(u=>u.id!==id)}));toast('Cadastro recusado')};
+  const pendentes=data.users.filter(u=>u.role==='morador'&&u.status==='pendente');
   return (<>
     <div className="back-head"><button onClick={back}>‹</button><h2>Equipe e acessos</h2></div>
+    {pendentes.length>0 && <>
+      <div className="section-label">🆕 Cadastros aguardando aprovação ({pendentes.length})</div>
+      {pendentes.map(u=>(<div key={u.id} className="req-card pend">
+        <div className="req-top"><div><div className="who">🏠 {u.name}</div><div className="meta">Apto {u.apt} · Torre {u.torre}</div></div><span className="status st-pend">⏳ Pendente</span></div>
+        <div className="req-line"><b>E-mail</b> {u.email}</div>
+        <div className="req-line"><b>CPF</b> {u.cpf}</div>
+        <div style={{display:'flex',gap:9,marginTop:10}}><button className="btn red sm" style={{flex:1}} onClick={()=>reject(u.id)}>Recusar</button><button className="btn sm" style={{flex:1}} onClick={()=>approve(u.id)}>Aprovar</button></div>
+      </div>))}
+    </>}
     <div className="hint">👥 Crie logins para porteiros, subsíndicos e equipe de limpeza. Cada um entra com o próprio e-mail e senha.</div>
     <div className="card"><div className="card-pad">
       <div className="field"><label>Função</label><div className="seg">{[['porteiro','Porteiro'],['subsindico','Subsíndico'],['limpeza','ASG']].map(([v,l])=><button key={v} className={f.role===v?'on':''} onClick={()=>setF({...f,role:v})}>{l}</button>)}</div></div>
@@ -819,7 +1118,8 @@ function Porteiro({data,setData,toast,me,back}){
   const aprovadas=all.filter(r=>r.status==='aprovada'&&!r.realizada);
   const feitas=all.filter(r=>r.realizada);const reprovadas=all.filter(r=>r.status==='reprovada');
   const pendPkg=data.packages.filter(p=>p.status==='aguardando').length;
-  const tabs=[{id:'agenda',ic:'📅',label:'Autorizados'},{id:'encomendas',ic:'📦',label:'Encomendas',badge:pendPkg},{id:'historico',ic:'🗂️',label:'Histórico'}];
+  const pendVis=data.visitors.filter(v=>v.status==='aguardando').length;
+  const tabs=[{id:'agenda',ic:'📅',label:'Autorizados'},{id:'visitantes',ic:'🚶',label:'Visitantes',badge:pendVis},{id:'encomendas',ic:'📦',label:'Encomendas',badge:pendPkg},{id:'historico',ic:'🗂️',label:'Histórico'}];
   const register=(kind,id)=>{const key=kind==='move'?'moveRequests':'workRequests';setData(d=>({...d,[key]:d[key].map(r=>r.id===id?{...r,realizada:nowStr()}:r)}));toast('Registrado na portaria')};
   return (<>
     <TopBar title="Portaria" sub={me.name} roleName="Porteiro" back={back}/>
@@ -827,6 +1127,7 @@ function Porteiro({data,setData,toast,me,back}){
       {tab==='agenda' && <><div className="page-head"><h2>Liberados para entrada</h2><p>Mudanças e obras aprovadas pelo síndico</p></div>
         {aprovadas.length===0 ? <Empty ic="🚪" msg="Nada autorizado no momento."/> : aprovadas.map(r=>(<ReqCard key={r.id} r={r} view="porteiro" actions={<button className="btn dark sm" style={{width:'100%',marginTop:12}} onClick={()=>register(r.kind,r.id)}>🏁 Registrar {r.kind==='move'?'mudança realizada':'início da obra'}</button>}/>))}
         {reprovadas.length>0 && <><div className="section-label">⛔ Não autorizados (não liberar)</div>{reprovadas.map(r=><ReqCard key={r.id} r={r} view="porteiro"/>)}</>}</>}
+      {tab==='visitantes' && <PorteiroVisitantes data={data} setData={setData} toast={toast} me={me}/>}
       {tab==='encomendas' && <PorteiroEncomendas data={data} setData={setData} toast={toast} me={me}/>}
       {tab==='historico' && <><div className="page-head"><h2>Histórico</h2><p>Mudanças e obras registradas</p></div>{feitas.length===0 ? <Empty ic="🗂️" msg="Nenhum registro ainda."/> : feitas.map(r=><ReqCard key={r.id} r={r} view="porteiro"/>)}</>}
     </div>
@@ -837,8 +1138,9 @@ function PorteiroEncomendas({data,setData,toast,me}){
   const [adding,setAdding]=useState(false);
   const pend=data.packages.filter(p=>p.status==='aguardando');
   const done=data.packages.filter(p=>p.status==='entregue');
-  if(adding) return <AddPackage data={data} me={me} onCancel={()=>setAdding(false)} onSave={pkg=>{setData(d=>({...d,packages:[pkg,...d.packages]}));setAdding(false);toast('Encomenda registrada · código '+pkg.code)}}/>;
-  const manualPickup=(id,who)=>setData(d=>({...d,packages:d.packages.map(p=>p.id===id?{...p,status:'entregue',pickedUpBy:who+' (registro manual)',pickedUpAt:nowStr()}:p)}));
+  if(adding) return <AddPackage data={data} me={me} onCancel={()=>setAdding(false)} onSave={pkg=>{setData(d=>({...d,packages:[pkg,...d.packages]}));setAdding(false);toast('Encomenda registrada · código enviado ao morador')}}/>;
+  const deliverByCode=(id,recipient)=>{setData(d=>({...d,packages:d.packages.map(p=>p.id===id?{...p,status:'entregue',pickedUpBy:recipient,deliveredBy:me.name,pickedUpAt:nowStr()}:p)}));toast('Entrega registrada')};
+  const manualPickup=(id,who)=>setData(d=>({...d,packages:d.packages.map(p=>p.id===id?{...p,status:'entregue',pickedUpBy:who+' (registro manual)',deliveredBy:me.name,pickedUpAt:nowStr()}:p)}));
   return (<>
     <div className="page-head"><h2>Encomendas</h2><p>Controle de entrega de correspondências</p></div>
     <div style={{padding:'0 16px'}}><button className="btn" onClick={()=>setAdding(true)}>+ Registrar nova encomenda</button></div>
@@ -848,24 +1150,36 @@ function PorteiroEncomendas({data,setData,toast,me}){
         <div className="req-top"><div><div className="who">📦 {p.recipient}</div><div className="meta">Apto {p.apt} · Torre {p.torre} · {p.carrier}</div></div><span className="status st-pend">⏳ Aguardando</span></div>
         {p.tracking && <div className="req-line"><b>Rastreio</b> {p.tracking}</div>}
         <div className="req-line"><b>Tipo</b> {p.type}</div>
-        <div className="code-wrap"><div className="cl">Código de retirada — informe ao morador</div><div className="code-pill">{p.code}</div></div>
-        <ManualPickup onConfirm={who=>{manualPickup(p.id,who);toast('Retirada registrada')}}/>
+        <div className="hint" style={{margin:'10px 0 0'}}>🔑 Peça ao morador o código que aparece no app dele e digite abaixo para registrar a entrega.</div>
+        <PorteiroDeliver pkg={p} onConfirm={()=>deliverByCode(p.id,p.recipient)}/>
+        <ManualPickup onConfirm={who=>manualPickup(p.id,who)}/>
       </div>))}
     <div className="section-label">Entregues ({done.length})</div>
     {done.map(p=>(<div key={p.id} className="pkg-card done">
       <div className="req-top"><div><div className="who">📦 {p.recipient}</div><div className="meta">Apto {p.apt} · Torre {p.torre} · {p.carrier}</div></div><span className="status st-feita">✓ Entregue</span></div>
       {p.tracking && <div className="req-line"><b>Rastreio</b> {p.tracking}</div>}
-      <div className="note-box" style={{background:'#e6eef7',color:'#2f5d86'}}>Retirada em {p.pickedUpAt} por <b>{p.pickedUpBy}</b></div></div>))}
+      <div className="note-box" style={{background:'#e6eef7',color:'#2f5d86'}}>Retirada em {p.pickedUpAt} por <b>{p.pickedUpBy}</b>{p.deliveredBy?(' · registrada por '+p.deliveredBy):''}</div></div>))}
     <div style={{height:14}}></div>
   </>);
 }
+function PorteiroDeliver({pkg,onConfirm}){
+  const [open,setOpen]=useState(false);const [code,setCode]=useState('');const [err,setErr]=useState(false);
+  if(!open) return <button className="btn dark sm" style={{width:'100%',marginTop:10}} onClick={()=>setOpen(true)}>Registrar entrega (com código do morador)</button>;
+  const go=()=>{if(code.trim()===pkg.code)onConfirm();else setErr(true)};
+  return (<div style={{marginTop:10,background:'#f6f8f3',borderRadius:11,padding:12}}>
+    {err && <div className="err" style={{marginBottom:8}}>Código incorreto. Confira com o morador.</div>}
+    <div className="field" style={{marginBottom:10}}><label>Código informado pelo morador</label>
+      <input className="otp" inputMode="numeric" maxLength={4} placeholder="0000" value={code} onChange={e=>{setCode(e.target.value.replace(/\D/g,''));setErr(false)}}/></div>
+    <div style={{display:'flex',gap:9}}><button className="btn ghost sm" style={{flex:1}} onClick={()=>setOpen(false)}>Voltar</button><button className="btn sm" style={{flex:1.4}} disabled={code.length!==4} onClick={go}>Confirmar entrega</button></div>
+  </div>);
+}
 function ManualPickup({onConfirm}){
   const [open,setOpen]=useState(false);const [who,setWho]=useState('');
-  if(!open) return <button className="btn ghost sm" style={{width:'100%',marginTop:10}} onClick={()=>setOpen(true)}>Registrar retirada manual</button>;
-  return (<div style={{marginTop:10,background:'#f6f8f3',borderRadius:11,padding:12}}>
+  if(!open) return <button className="btn ghost sm" style={{width:'100%',marginTop:8}} onClick={()=>setOpen(true)}>Retirada manual (sem código)</button>;
+  return (<div style={{marginTop:8,background:'#f6f8f3',borderRadius:11,padding:12}}>
     <div className="field" style={{marginBottom:10}}><label>Quem retirou? (visitante, empregada, etc.)</label><input value={who} onChange={e=>setWho(e.target.value)} placeholder="Nome de quem retirou"/></div>
     <div style={{display:'flex',gap:9}}><button className="btn ghost sm" style={{flex:1}} onClick={()=>setOpen(false)}>Voltar</button><button className="btn sm" style={{flex:1.4}} disabled={!who.trim()} onClick={()=>onConfirm(who.trim())}>Confirmar retirada</button></div>
-    <div style={{fontSize:11,color:'var(--muted)',marginTop:8}}>Use quando o morador não confirmar pelo app. O ideal é o morador digitar o código no app dele.</div>
+    <div style={{fontSize:11,color:'var(--muted)',marginTop:8}}>Use quando não for o morador retirando. O ideal é registrar com o código do app do morador.</div>
   </div>);
 }
 function AddPackage({data,me,onCancel,onSave}){
@@ -913,9 +1227,9 @@ function ScanArea({areas,onScan}){
       areas.map(a=>(<div key={a.id} className="area-card" onClick={()=>onScan(a)} style={{cursor:'pointer',alignItems:'center'}}><div className="area-ic">{a.icon}</div><div className="area-info"><div className="an">{a.name}</div><div className="at">Código: {a.id.toUpperCase()}</div></div><span style={{color:'var(--green-600)',fontSize:22}}>📲</span></div>))}</>);
 }
 function RegisterCleaning({area,me,onCancel,onSave}){
-  const [photos,setPhotos]=useState([]);const [note,setNote]=useState('');const fileRef=useRef();
+  const [photos,setPhotos]=useState([]);const [note,setNote]=useState('');const [saving,setSaving]=useState(false);const fileRef=useRef();
   const onFiles=e=>{[...e.target.files].forEach(file=>{const r=new FileReader();r.onload=()=>setPhotos(p=>[...p,r.result]);r.readAsDataURL(file)})};
-  const save=()=>onSave({id:Date.now(),areaId:area.id,areaName:area.name,by:me.name,datetime:nowStr(),photos,note});
+  const save=async()=>{setSaving(true);const urls=await pushPhotos(photos,'limpeza','limpeza_'+area.id);onSave({id:Date.now(),areaId:area.id,areaName:area.name,by:me.name,datetime:nowStr(),photos:urls,note})};
   return (<><div className="page-head"><h2>{area.icon} {area.name}</h2><p>Código lido: {area.id.toUpperCase()} · {nowStr()}</p></div>
     <div className="card"><div className="card-pad">
       <div className="hint" style={{margin:'0 0 14px'}}>✓ QR Code reconhecido. Tire fotos do serviço realizado.</div>
@@ -925,7 +1239,7 @@ function RegisterCleaning({area,me,onCancel,onSave}){
       {photos.length>0 && <div className="photo-prev">{photos.map((p,i)=>(<div className="pp" key={i}><img src={p}/><button className="x" onClick={()=>setPhotos(photos.filter((_,j)=>j!==i))}>×</button></div>))}</div>}
       <div className="field" style={{marginTop:14}}><label>Observação (opcional)</label><textarea placeholder="Ex: piso lavado, lixeiras trocadas..." value={note} onChange={e=>setNote(e.target.value)}/></div>
     </div></div>
-    <div style={{padding:16,display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} onClick={onCancel}>Cancelar</button><button className="btn" style={{flex:2}} onClick={save}>Concluir registro</button></div></>);
+    <div style={{padding:16,display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} onClick={onCancel} disabled={saving}>Cancelar</button><button className="btn" style={{flex:2}} onClick={save} disabled={saving}>{saving?'Enviando…':'Concluir registro'}</button></div></>);
 }
 function CleaningLogs({data,openImg}){
   if(data.cleaningLogs.length===0) return <Empty ic="🧽" msg="Nenhum serviço registrado ainda."/>;
