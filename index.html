@@ -624,7 +624,6 @@ function Auth({data,setData,onLogin}){
   };
   if(mode==='register') return <Register data={data} setData={setData} onDone={onLogin} back={()=>setMode('login')}/>;
   if(mode==='forgot') return <ForgotPassword data={data} setData={setData} onDone={onLogin} back={()=>setMode('login')}/>;
-  if(mode==='config') return <ServerConfig data={data} setData={setData} back={()=>setMode('login')}/>;
   return (
     <div className="app-shell"><div className="auth">
       <div className="auth-logo"><img src={LOCKUP} alt="Torre Passaré"/></div>
@@ -638,11 +637,10 @@ function Auth({data,setData,onLogin}){
         <div style={{textAlign:'center',marginTop:12}}><a style={{color:'var(--green-700)',fontWeight:700,fontSize:13,textDecoration:'underline'}} onClick={()=>setMode('forgot')}>Esqueci minha senha</a></div>
       </div>
       <div className="auth-foot">É morador e ainda não tem conta?<br/><a onClick={()=>setMode('register')}>Criar minha conta</a></div>
-      <div style={{textAlign:'center',marginTop:16}}><a style={{color:'var(--muted)',fontSize:12,textDecoration:'underline',cursor:'pointer'}} onClick={()=>setMode('config')}>⚙ Configurar servidor</a></div>
     </div></div>
   );
 }
-function ServerConfig({data,setData,back}){
+function ServerConfig({data,setData,toast,back}){
   const [url,setUrl]=useState('');const [status,setStatus]=useState('');const [busy,setBusy]=useState(false);const [confirmProd,setConfirmProd]=useState(false);
   useEffect(()=>{getApiBase().then(u=>setUrl(u||''))},[]);
   const save=async()=>{setBusy(true);await setApiBase(url);try{if(data)await saveData(data);}catch(e){}setBusy(false);setStatus('✓ URL salva e dados sincronizados com o servidor.')};
@@ -653,22 +651,23 @@ function ServerConfig({data,setData,back}){
     }catch(e){setStatus('✕ Não consegui conectar. Confira a URL (deve terminar em /exec) e se a implantação está como "Qualquer pessoa".')}
     setBusy(false);
   };
-  const startProd=async()=>{const base=prodBase(seed);base.users=migrateUsers(base.users);setData(base);await saveData(base);setConfirmProd(false);setStatus('✓ Base de produção iniciada. Lembre de trocar as senhas da equipe.')};
-  return (<div className="app-shell"><div className="auth">
-    <div className="auth-logo"><img src={LOCKUP} alt=""/></div>
-    <h1>Servidor / Produção</h1>
-    <p className="sub">Conecte o app ao seu Google Apps Script</p>
-    <div className="auth-card">
+  const startProd=async()=>{const base=prodBase(seed);base.users=migrateUsers(base.users);setData(base);await saveData(base);setConfirmProd(false);if(toast)toast('Base de produção iniciada')};
+  return (<>
+    <div className="back-head"><button onClick={back}>‹</button><h2>Servidor e manutenção</h2></div>
+    <div className="hint">🔌 Conexão do app com o Google Apps Script. Em geral você não precisa mexer aqui — a URL já vem configurada de fábrica.</div>
+    <div className="card"><div className="card-pad">
       <div className="field"><label>URL do Web App (termina em /exec)</label><input value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/.../exec"/></div>
       <div style={{display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} disabled={busy} onClick={save}>Salvar</button><button className="btn" style={{flex:1}} disabled={busy||!url} onClick={test}>Testar conexão</button></div>
-      {status && <div className="hint" style={{marginTop:12}}>{status}</div>}
-      <div className="divider"></div>
-      <div style={{fontSize:12.5,color:'var(--muted)',marginBottom:8}}>Pronto para abrir aos moradores? Comece com uma base limpa (mantém equipe, áreas e regimento; remove os dados de demonstração):</div>
-      {!confirmProd? <button className="btn red" onClick={()=>setConfirmProd(true)}>Iniciar base de produção</button>
-       : <><div className="err" style={{background:'#fff4f0'}}>Isto apaga os dados de demonstração. Confirmar?</div><div style={{display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} onClick={()=>setConfirmProd(false)}>Cancelar</button><button className="btn red" style={{flex:1}} onClick={startProd}>Sim, iniciar</button></div></>}
-    </div>
-    <div className="auth-foot"><a onClick={back}>‹ Voltar ao login</a></div>
-  </div></div>);
+      {status && <div className="hint" style={{marginTop:12,marginBottom:0}}>{status}</div>}
+    </div></div>
+    <div className="section-label">⚠️ Zona de risco</div>
+    <div className="card"><div className="card-pad">
+      <div style={{fontSize:12.5,color:'var(--muted)',marginBottom:8}}>Recomeçar a base do zero <b>apaga todos os dados</b> (mantém apenas a equipe, as áreas e o regimento). Use somente na implantação inicial.</div>
+      {!confirmProd? <button className="btn red" onClick={()=>setConfirmProd(true)}>Recomeçar base do zero</button>
+       : <><div className="err" style={{background:'#fff4f0'}}>Isto apaga todos os dados atuais. Confirmar?</div><div style={{display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} onClick={()=>setConfirmProd(false)}>Cancelar</button><button className="btn red" style={{flex:1}} onClick={startProd}>Sim, recomeçar</button></div></>}
+    </div></div>
+    <div style={{height:14}}></div>
+  </>);
 }
 function Register({data,setData,onDone,back}){
   const [f,setF]=useState({name:'',torre:'',apt:'',cpf:'',email:'',pass:'',pass2:''});
@@ -1008,9 +1007,10 @@ function Sindico({data,setData,toast,openImg,me,back}){
       <TopBar title="Painel do Síndico" sub={me.name} roleName={ROLE_LABEL[me.role]} back={back}/>
       <div className="scroll">
         {sub==='areas' ? <AreasManager data={data} setData={setData} toast={toast} back={()=>setSub(null)}/> :
-         sub==='equipe' ? <EquipeManager data={data} setData={setData} toast={toast} me={me} back={()=>setSub(null)}/> :
+         sub==='equipe' ? <EquipeManager data={data} setData={setData} toast={toast} me={me} back={()=>setSub(null)} logout={back}/> :
          sub==='chamados' ? <SindicoChamados data={data} setData={setData} toast={toast} openImg={openImg} back={()=>setSub(null)}/> :
          sub==='documentos' ? <DocsManager data={data} setData={setData} toast={toast} back={()=>setSub(null)}/> :
+         sub==='servidor' ? <ServerConfig data={data} setData={setData} toast={toast} back={()=>setSub(null)}/> :
          tab==='inicio' ? <SindicoInicio data={data} setTab={setTab} setSub={setSub}/> :
          tab==='mudancas' ? <SindicoList kind="move" list={data.moveRequests} decide={decide}/> :
          tab==='obras' ? <SindicoList kind="work" list={data.workRequests} decide={decide}/> :
@@ -1039,9 +1039,10 @@ function SindicoInicio({data,setTab,setSub}){
     <Shortcut ic="🔧" t="Chamados de manutenção" s="Ocorrências abertas pelos moradores" on={()=>setSub('chamados')}/>
     <Shortcut ic="📄" t="Documentos" s="Regimento, atas e convenção" on={()=>setSub('documentos')}/>
     <Shortcut ic="🔲" t="Áreas e QR Codes" s="Mapear áreas e gerar os QR Codes" on={()=>setSub('areas')}/>
-    <Shortcut ic="👥" t="Equipe e acessos" s="Cadastros, porteiros, subsíndicos, ASG" on={()=>setSub('equipe')}/>
+    <Shortcut ic="👥" t="Equipe e gestão" s="Aprovar cadastros, equipe e trocar síndico" on={()=>setSub('equipe')}/>
     <Shortcut ic="🧽" t="Serviços da limpeza" s="Ver registros dos ASGs" on={()=>setTab('limpeza')}/>
     <Shortcut ic="📢" t="Publicar comunicado" s="Notifica todos os moradores" on={()=>setTab('avisos')}/>
+    <Shortcut ic="🔌" t="Servidor e manutenção" s="Conexão do app e recomeçar base" on={()=>setSub('servidor')}/>
   </>);
 }
 function SindicoList({kind,list,decide}){
@@ -1116,21 +1117,27 @@ function AreasManager({data,setData,toast,back}){
   </>);
 }
 /* ---- Equipe & acessos ---- */
-function EquipeManager({data,setData,toast,me,back}){
+function EquipeManager({data,setData,toast,me,back,logout}){
   const [f,setF]=useState({name:'',email:'',pass:'',cpf:'',role:'porteiro'});const [err,setErr]=useState('');
+  const [promoteId,setPromoteId]=useState('');const [confirmT,setConfirmT]=useState(false);
   const set=k=>e=>{setF({...f,[k]:e.target.value});setErr('')};
-  const staff=data.users.filter(u=>u.role!=='morador');
+  const staff=data.users.filter(u=>u.role!=='morador'&&u.role!=='sindico');
+  const sindicos=data.users.filter(u=>u.role==='sindico');
+  const eligiveis=data.users.filter(u=>(u.role==='morador'||u.role==='subsindico')&&u.status!=='pendente'&&u.status!=='rejeitado');
   const add=()=>{
     if(!f.name||!f.email||!f.pass){setErr('Preencha nome, e-mail e senha.');return}
     if(data.users.some(u=>u.email.toLowerCase()===f.email.trim().toLowerCase())){setErr('E-mail já cadastrado.');return}
     if(f.cpf&&digits(f.cpf).length!==11){setErr('CPF inválido (11 dígitos) ou deixe em branco.');return}
     const salt=makeSalt();
-    setData(d=>({...d,users:[...d.users,{id:'u'+Date.now(),name:f.name,email:f.email.trim(),cpf:f.cpf?fmtCpf(f.cpf):'',salt,hash:deriveHash(f.pass,salt),role:f.role,apt:'-',torre:'-'}]}));
+    setData(d=>({...d,users:[...d.users,{id:'u'+Date.now(),name:f.name,email:f.email.trim(),cpf:f.cpf?fmtCpf(f.cpf):'',salt,hash:deriveHash(f.pass,salt),role:f.role,apt:'-',torre:'-',status:'ativo'}]}));
     setF({name:'',email:'',pass:'',cpf:'',role:'porteiro'});toast('Acesso criado');
   };
   const remove=id=>setData(d=>({...d,users:d.users.filter(u=>u.id!==id)}));
   const approve=id=>{setData(d=>({...d,users:d.users.map(u=>u.id===id?{...u,status:'ativo'}:u)}));toast('Cadastro aprovado')};
   const reject=id=>{setData(d=>({...d,users:d.users.filter(u=>u.id!==id)}));toast('Cadastro recusado')};
+  const promote=()=>{if(!promoteId)return;const nm=(data.users.find(u=>u.id===promoteId)||{}).name||'';setData(d=>({...d,users:d.users.map(u=>u.id===promoteId?{...u,role:'sindico'}:u)}));setPromoteId('');toast((nm?nm+' ':'')+'agora é síndico')};
+  const demote=id=>{if(sindicos.length<=1){toast('Promova outra pessoa antes de remover o único síndico');return}setData(d=>({...d,users:d.users.map(u=>u.id===id?{...u,role:'morador',apt:u.apt==='-'?'':u.apt,torre:u.torre==='-'?'':u.torre}:u)}));toast('Síndico removido da gestão')};
+  const transfer=()=>{const tid=promoteId;if(!tid)return;setData(d=>({...d,users:d.users.filter(u=>u.id!==me.id).map(u=>u.id===tid?{...u,role:'sindico'}:u)}));setConfirmT(false);toast('Gestão transferida');if(logout)setTimeout(logout,600)};
   const pendentes=data.users.filter(u=>u.role==='morador'&&u.status==='pendente');
   return (<>
     <div className="back-head"><button onClick={back}>‹</button><h2>Equipe e acessos</h2></div>
@@ -1143,6 +1150,20 @@ function EquipeManager({data,setData,toast,me,back}){
         <div style={{display:'flex',gap:9,marginTop:10}}><button className="btn red sm" style={{flex:1}} onClick={()=>reject(u.id)}>Recusar</button><button className="btn sm" style={{flex:1}} onClick={()=>approve(u.id)}>Aprovar</button></div>
       </div>))}
     </>}
+    <div className="section-label">🏛️ Gestão (síndicos)</div>
+    {sindicos.map(u=>(<div key={u.id} className="staff-row"><div className="av">{u.name.charAt(0)}</div>
+      <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,color:'var(--green-900)',fontSize:14.5}}>{u.name} {u.id===me.id && <span style={{color:'var(--muted)',fontWeight:500}}>(você)</span>}</div><div style={{fontSize:11.5,color:'var(--muted)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{u.email}</div></div>
+      <span className="role-tag">Síndico</span>
+      {u.id!==me.id && <button className="btn red sm" onClick={()=>demote(u.id)}>Remover</button>}</div>))}
+    <div className="card"><div className="card-pad">
+      <div className="field"><label>Tornar outra pessoa síndico</label><select value={promoteId} onChange={e=>{setPromoteId(e.target.value);setConfirmT(false)}}>
+        <option value="">Selecione um morador…</option>{eligiveis.map(u=><option key={u.id} value={u.id}>{u.name} — {u.email}</option>)}
+      </select></div>
+      {eligiveis.length===0 && <div className="hint" style={{margin:'0 0 10px'}}>Nenhum morador aprovado disponível para promover ainda.</div>}
+      <div style={{display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} disabled={!promoteId} onClick={promote}>Tornar síndico</button><button className="btn" style={{flex:1}} disabled={!promoteId} onClick={()=>setConfirmT(true)}>Transferir gestão e sair</button></div>
+      {confirmT && <><div className="err" style={{marginTop:10,background:'#fff4f0'}}>Isto torna a pessoa selecionada síndico e <b>remove a sua conta de síndico</b>. Você será desconectado. Continuar?</div>
+        <div style={{display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} onClick={()=>setConfirmT(false)}>Cancelar</button><button className="btn red" style={{flex:1}} onClick={transfer}>Sim, transferir</button></div></>}
+    </div></div>
     <div className="hint">👥 Crie logins para porteiros, subsíndicos e equipe de limpeza. Cada um entra com o próprio e-mail e senha.</div>
     <div className="card"><div className="card-pad">
       <div className="field"><label>Função</label><div className="seg">{[['porteiro','Porteiro'],['subsindico','Subsíndico'],['limpeza','ASG']].map(([v,l])=><button key={v} className={f.role===v?'on':''} onClick={()=>setF({...f,role:v})}>{l}</button>)}</div></div>
@@ -1153,11 +1174,11 @@ function EquipeManager({data,setData,toast,me,back}){
       <div className="field"><label>Senha</label><input value={f.pass} onChange={set('pass')} placeholder="senha inicial"/></div>
       <button className="btn" onClick={add}>Criar acesso</button>
     </div></div>
-    <div className="section-label">Acessos ativos ({staff.length})</div>
+    <div className="section-label">Acessos da equipe ({staff.length})</div>
     {staff.map(u=>(<div key={u.id} className="staff-row"><div className="av">{u.name.charAt(0)}</div>
-      <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,color:'var(--green-900)',fontSize:14.5}}>{u.name} {u.id===me.id && <span style={{color:'var(--muted)',fontWeight:500}}>(você)</span>}</div><div style={{fontSize:11.5,color:'var(--muted)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{u.email}</div></div>
+      <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,color:'var(--green-900)',fontSize:14.5}}>{u.name}</div><div style={{fontSize:11.5,color:'var(--muted)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{u.email}</div></div>
       <span className="role-tag">{ROLE_LABEL[u.role]}</span>
-      {u.id!==me.id && <button className="btn red sm" onClick={()=>remove(u.id)}>×</button>}</div>))}
+      <button className="btn red sm" onClick={()=>remove(u.id)}>×</button></div>))}
     <div style={{height:14}}></div>
   </>);
 }
