@@ -266,7 +266,7 @@ async function pushPhotos(list,folder,name){const out=[];for(let i=0;i<list.leng
 /* Base limpa para produção: mantém equipe (síndico/subsíndico/portaria/limpeza),
    áreas e o regimento; zera moradores e solicitações de demonstração. */
 function prodBase(s){
-  return {users:s.users.filter(u=>u.role!=='morador'),areas:s.areas,announcements:[],moveRequests:[],workRequests:[],packages:[],tickets:[],visitors:[],documents:s.documents.filter(d=>d.category==='Regimento'),acks:[]};
+  return {users:s.users.filter(u=>u.role!=='morador'),areas:s.areas,announcements:[],moveRequests:[],workRequests:[],cleaningLogs:[],packages:[],tickets:[],visitors:[],documents:s.documents.filter(d=>d.category==='Regimento'),acks:[]};
 }
 
 function Knot({size=32}){return <img className="knot" src={KNOT} style={{width:size,height:size,display:'block'}} alt=""/>}
@@ -589,7 +589,7 @@ function App(){
   const [asMorador,setAsMorador]=useState(false);
   const showToast=m=>{setToast(m);setTimeout(()=>setToast(null),2200)};
 
-  useEffect(()=>{(async()=>{const d=await loadData(seed);if(d){if(!d.users)d.users=seed.users;if(!d.areas)d.areas=seed.areas;if(!d.packages)d.packages=seed.packages;if(!d.tickets)d.tickets=seed.tickets;if(!d.visitors)d.visitors=seed.visitors;if(!d.documents)d.documents=seed.documents;if(!d.acks)d.acks=[];d.users=migrateUsers(d.users);setData(d);}setReady(true)})()},[]);
+  useEffect(()=>{(async()=>{const d=await loadData(seed);if(d){['users','areas','announcements','moveRequests','workRequests','cleaningLogs','packages','tickets','visitors','documents'].forEach(k=>{if(!Array.isArray(d[k]))d[k]=seed[k]||[]});if(!Array.isArray(d.acks))d.acks=[];d.users=migrateUsers(d.users);setData(d);}setReady(true)})()},[]);
   useEffect(()=>{if(ready)saveData(data)},[data,ready]);
 
   const shared={data,setData,toast:showToast,openImg:setLightbox};
@@ -828,7 +828,7 @@ function MoradorAvisos({data,openImg}){
       <div className="a-date">{a.date} · {a.author}</div><div className="a-text">{a.text}</div></div></div>))}</>);
 }
 function MoradorLimpeza({data,openImg}){
-  const lastByArea=useMemo(()=>{const m={};data.cleaningLogs.forEach(l=>{if(!m[l.areaId])m[l.areaId]=l});return m},[data.cleaningLogs]);
+  const lastByArea=useMemo(()=>{const m={};(data.cleaningLogs||[]).forEach(l=>{if(!m[l.areaId])m[l.areaId]=l});return m},[data.cleaningLogs]);
   return (<><div className="page-head"><h2>Limpeza das áreas</h2><p>Fotos registradas pela equipe de limpeza</p></div>
     {data.areas.map(area=>{const log=lastByArea[area.id];return (
       <div key={area.id} className="area-card"><div className="area-ic">{area.icon}</div>
@@ -1067,12 +1067,13 @@ function DecidePanel({mode,onConfirm,onCancel}){
   </div>);
 }
 function SindicoLimpeza({data,openImg}){
-  const areasWithLogs=[...new Set(data.cleaningLogs.map(l=>l.areaId))];
+  const logs=data.cleaningLogs||[];
+  const areasWithLogs=[...new Set(logs.map(l=>l.areaId))];
   return (<><div className="page-head"><h2>Serviços da limpeza</h2><p>Registros enviados pela equipe (ASG)</p></div>
-    <div className="stat-row"><div className="stat"><div className="n">{data.cleaningLogs.length}</div><div className="l">Registros</div></div><div className="stat green"><div className="n">{areasWithLogs.length}</div><div className="l">Áreas atendidas</div></div><div className="stat amber"><div className="n">{Math.max(0,data.areas.length-areasWithLogs.length)}</div><div className="l">Sem registro</div></div></div>
+    <div className="stat-row"><div className="stat"><div className="n">{logs.length}</div><div className="l">Registros</div></div><div className="stat green"><div className="n">{areasWithLogs.length}</div><div className="l">Áreas atendidas</div></div><div className="stat amber"><div className="n">{Math.max(0,data.areas.length-areasWithLogs.length)}</div><div className="l">Sem registro</div></div></div>
     <div className="section-label">Histórico</div>
-    {data.cleaningLogs.length===0 ? <Empty ic="🧽" msg="Nenhum serviço registrado ainda."/> :
-      data.cleaningLogs.map(l=>(<div key={l.id} className="area-card"><div className="area-ic">{areaIcon(data.areas,l.areaId)}</div>
+    {logs.length===0 ? <Empty ic="🧽" msg="Nenhum serviço registrado ainda."/> :
+      logs.map(l=>(<div key={l.id} className="area-card"><div className="area-ic">{areaIcon(data.areas,l.areaId)}</div>
         <div className="area-info"><div className="an">{l.areaName}</div><div className="at">{l.datetime} · {l.by}</div>
         {l.note && <div className="at" style={{marginTop:2}}>“{l.note}”</div>}
         {l.photos&&l.photos.length>0 && <div className="photo-strip">{l.photos.map((p,i)=><img key={i} src={p} onClick={()=>openImg(p)}/>)}</div>}</div></div>))}</>);
@@ -1119,11 +1120,13 @@ function AreasManager({data,setData,toast,back}){
 /* ---- Equipe & acessos ---- */
 function EquipeManager({data,setData,toast,me,back,logout}){
   const [f,setF]=useState({name:'',email:'',pass:'',cpf:'',role:'porteiro'});const [err,setErr]=useState('');
-  const [promoteId,setPromoteId]=useState('');const [confirmT,setConfirmT]=useState(false);
+  const [promoteId,setPromoteId]=useState('');const [confirmT,setConfirmT]=useState(false);const [revokeId,setRevokeId]=useState(null);
   const set=k=>e=>{setF({...f,[k]:e.target.value});setErr('')};
   const staff=data.users.filter(u=>u.role!=='morador'&&u.role!=='sindico');
   const sindicos=data.users.filter(u=>u.role==='sindico');
   const eligiveis=data.users.filter(u=>(u.role==='morador'||u.role==='subsindico')&&u.status!=='pendente'&&u.status!=='rejeitado');
+  const moradores=data.users.filter(u=>u.role==='morador'&&u.status==='ativo');
+  const revoke=id=>{setData(d=>({...d,users:d.users.filter(u=>u.id!==id)}));setRevokeId(null);toast('Acesso do morador removido')};
   const add=()=>{
     if(!f.name||!f.email||!f.pass){setErr('Preencha nome, e-mail e senha.');return}
     if(data.users.some(u=>u.email.toLowerCase()===f.email.trim().toLowerCase())){setErr('E-mail já cadastrado.');return}
@@ -1179,6 +1182,18 @@ function EquipeManager({data,setData,toast,me,back,logout}){
       <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,color:'var(--green-900)',fontSize:14.5}}>{u.name}</div><div style={{fontSize:11.5,color:'var(--muted)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{u.email}</div></div>
       <span className="role-tag">{ROLE_LABEL[u.role]}</span>
       <button className="btn red sm" onClick={()=>remove(u.id)}>×</button></div>))}
+    <div className="section-label">🏠 Moradores com acesso ({moradores.length})</div>
+    <div className="hint" style={{marginTop:0}}>Quando um morador sair do condomínio, remova o acesso dele aqui. Ele não consegue mais entrar no app.</div>
+    {moradores.length===0 ? <div className="hint">Nenhum morador ativo ainda.</div> :
+      moradores.map(u=>(<div key={u.id}>
+        <div className="staff-row"><div className="av">{u.name.charAt(0)}</div>
+          <div style={{flex:1,minWidth:0}}><div style={{fontWeight:700,color:'var(--green-900)',fontSize:14.5}}>{u.name}</div><div style={{fontSize:11.5,color:'var(--muted)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>Apto {u.apt} · Torre {u.torre} · {u.email}</div></div>
+          <button className="btn red sm" onClick={()=>setRevokeId(revokeId===u.id?null:u.id)}>Remover</button></div>
+        {revokeId===u.id && <div className="card"><div className="card-pad" style={{paddingTop:12,paddingBottom:12}}>
+          <div className="err" style={{background:'#fff4f0'}}>Remover o acesso de <b>{u.name}</b>? Ele perderá o login no app.</div>
+          <div style={{display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} onClick={()=>setRevokeId(null)}>Cancelar</button><button className="btn red" style={{flex:1}} onClick={()=>revoke(u.id)}>Sim, remover</button></div>
+        </div></div>}
+      </div>))}
     <div style={{height:14}}></div>
   </>);
 }
@@ -1282,7 +1297,7 @@ function Limpeza({data,setData,toast,openImg,me,back}){
     <TopBar title="Equipe de Limpeza" sub={me.name} roleName="ASG" back={back}/>
     <div className="scroll">
       {tab==='registrar' && (scanned ?
-        <RegisterCleaning area={scanned} me={me} onCancel={()=>setScanned(null)} onSave={log=>{setData(d=>({...d,cleaningLogs:[log,...d.cleaningLogs]}));setScanned(null);toast('Serviço registrado')}}/> :
+        <RegisterCleaning area={scanned} me={me} onCancel={()=>setScanned(null)} onSave={log=>{setData(d=>({...d,cleaningLogs:[log,...(d.cleaningLogs||[])]}));setScanned(null);toast('Serviço registrado')}}/> :
         <ScanArea areas={data.areas} onScan={setScanned}/>)}
       {tab==='feitos' && <CleaningLogs data={data} openImg={openImg}/>}
     </div>
@@ -1314,9 +1329,9 @@ function RegisterCleaning({area,me,onCancel,onSave}){
     <div style={{padding:16,display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} onClick={onCancel} disabled={saving}>Cancelar</button><button className="btn" style={{flex:2}} onClick={save} disabled={saving}>{saving?'Enviando…':'Concluir registro'}</button></div></>);
 }
 function CleaningLogs({data,openImg}){
-  if(data.cleaningLogs.length===0) return <Empty ic="🧽" msg="Nenhum serviço registrado ainda."/>;
+  const _logs=data.cleaningLogs||[];if(_logs.length===0) return <Empty ic="🧽" msg="Nenhum serviço registrado ainda."/>;
   return (<><div className="page-head"><h2>Registros de limpeza</h2><p>Serviços realizados pela equipe</p></div>
-    {data.cleaningLogs.map(l=>(<div key={l.id} className="area-card"><div className="area-ic">{areaIcon(data.areas,l.areaId)}</div>
+    {_logs.map(l=>(<div key={l.id} className="area-card"><div className="area-ic">{areaIcon(data.areas,l.areaId)}</div>
       <div className="area-info"><div className="an">{l.areaName}</div><div className="at">{l.datetime} · {l.by}</div>
       {l.note && <div className="at" style={{marginTop:2}}>“{l.note}”</div>}
       {l.photos&&l.photos.length>0 && <div className="photo-strip">{l.photos.map((p,i)=><img key={i} src={p} onClick={()=>openImg(p)}/>)}</div>}</div></div>))}</>);
