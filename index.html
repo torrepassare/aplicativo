@@ -225,7 +225,7 @@ const ROLE_LABEL={morador:'Morador',sindico:'Síndico',subsindico:'Subsíndico',
 const EMOJIS=['🏛️','🏊','🏋️','🎉','🛝','🅿️','🛗','🌳','🚪','🧺','🔥','🏀'];
 
 /* ===== Camada de dados — pronta p/ backend Google (ver GUIA) ===== */
-const API_BASE = "https://script.google.com/macros/s/AKfycbzDsirlSCJCTLj52rPILR3BYy2i589yuHQOda5okeh3ZbF7v4V1NvyNL0NdcfuQisNk/exec"; // cole aqui a URL do Web App do Google Apps Script
+const API_BASE = "https://script.google.com/macros/s/AKfycbz6_fdV7ZgxHrAsKGpWqGt2dh-9J3LG_26B11X5u7auBgIUPUTJf95GS8299zamuVPvtg/exec"; // cole aqui a URL do Web App do Google Apps Script
 async function loadData(fb){
   if(API_BASE){try{const r=await fetch(API_BASE+"?action=load");const j=await r.json();if(j&&j.data)return j.data;}catch(e){}}
   try{if(window.storage){const r=await window.storage.get('tp_data');if(r&&r.value)return JSON.parse(r.value);}}catch(e){}
@@ -726,8 +726,8 @@ function Nav({tabs,active,setActive}){
 }
 
 /* ===== RULES ===== */
-const MOVE_RULES=[['Capítulo 7 — Mudanças','Permitidas de segunda a sábado, das 08h às 18h. Domingos e feriados apenas com autorização. Comunicar com 24h de antecedência.'],['Capítulo 2 — Horário','Respeitar o silêncio entre 22h e 7h e usar aparelhos sonoros com moderação.'],['Regras gerais e segurança','Não impedir o uso das áreas comuns. Proibido deixar volumes nas áreas comuns. Entregadores não acessam o condomínio (retirada na portaria).'],['Elevadores','Evite segurar as portas, principalmente após o apito sonoro. Subir/retirar materiais somente após a retirada dos tapetes.'],['Observações importantes','Proibida a entrada de caminhões e de botijões de gás, cheios ou vazios.']];
-const WORK_RULES=[['3.6 — Reformas e Obras','Toda reforma deve ser comunicada ao Síndico e à Construtora por formulário próprio. O início só é permitido após autorização do Síndico.'],['Horário das obras','Apenas em dias úteis, de segunda a sexta, das 08h às 18h. O condômino é responsável pelo acesso e permanência dos prestadores.'],['Entulhos','Devem ser retirados pelo condômino, não podendo ficar nas áreas comuns, sob pena de remoção pelo Síndico às custas do responsável.'],['Fachada','Proibida a alteração de materiais, pinturas e tonalidades dos elementos da fachada, salvo decisão em assembleia.'],['Observações importantes','Proibida a entrada de caminhões. Subir materiais somente após a retirada dos tapetes.']];
+const MOVE_RULES=[['Termo de Ciência e Responsabilidade','O solicitante acima qualificado fica autorizado a efetuar sua mudança na data e horário informados, estando desde já notificado e ciente das normas internas do condomínio. O não cumprimento das regras poderá acarretar multa conforme o Regimento Interno.'],['Capítulo 2 — Horário','2.1 — Respeitar o silêncio entre 22h e 7h; usar aparelhos sonoros moderadamente.'],['Capítulo 3 — Regras gerais e segurança','3.1.1 — Uso das áreas comuns sem impedir o uso por outros. 3.1.3 — Entregadores não podem acessar o condomínio; retirada na portaria. 3.1.4 — Proibido deixar volumes em áreas comuns. 3.3.1 — Proibido guardar materiais explosivos ou inflamáveis.'],['Capítulo 3.6 — Reformas e obras','3.6.1 — Devem ser autorizadas com aviso à administração com 24h de antecedência. 3.6.2 — Obras: segunda a sexta, 08h às 18h. 3.6.3 — Entulhos devem ser retirados pelo morador.'],['Elevadores','Evite segurar as portas do elevador, principalmente após o apito sonoro. Subir/retirar materiais somente após a retirada dos tapetes dos elevadores.'],['Capítulo 7 — Mudanças','7.1 — Mudanças: segunda a sábado, das 08h às 18h. 7.2 — Comunicar com 24h de antecedência. 7.3 — Domingos e feriados apenas com autorização.'],['Observação importante','É proibida a entrada de caminhões no condomínio por questões estruturais. É proibida a entrada de botijões de gás (cheios ou vazios), conforme normas do Corpo de Bombeiros.']];
+const WORK_RULES=[['Termo de Ciência e Responsabilidade','O solicitante acima qualificado fica autorizado a efetuar a obra respeitando as datas previamente informadas, estando desde já notificado e ciente das normas internas do condomínio. O não cumprimento das regras poderá acarretar multa conforme o Regimento Interno.'],['3.6.1 — Consulta e autorização prévia','Toda e qualquer reforma a ser realizada nas unidades deverá ser precedida de consulta aos respectivos projetos e comunicada ao Síndico e à Construtora, através de formulário próprio, por motivo de segurança estrutural (hidráulica, elétrica, gás, alvenaria etc.). O início das obras só será permitido após autorização do Síndico.'],['3.6.2 — Horário e responsabilidade','Qualquer obra deverá ser executada nos dias úteis da semana, de segunda a sexta-feira, no período entre 08h e 18h. O condômino fica responsável pelo acesso dos empregados ao condomínio e pela permanência deles, devendo zelar pela segurança de todos.'],['3.6.3 — Entulhos','Os entulhos provenientes das obras de reforma deverão ser retirados pelo condômino, não podendo ser deixados nas dependências comuns, sob pena de ser feito pelo Síndico às custas do responsável, sendo devido o reembolso.'],['Elevadores','Evite segurar as portas do elevador, principalmente após o apito sonoro. Subir/retirar materiais somente após a retirada dos tapetes dos elevadores.'],['Observações importantes','É proibida a entrada de caminhões no condomínio por questões estruturais. É proibida a alteração com materiais, pinturas e tonalidades dos elementos componentes da fachada, como varandas e janelas, salvo modificações permitidas em assembleia convocada para esse fim.']];
 function RulesModal({rules,title,onClose}){
   return (<div className="modal-bg" onClick={onClose}><div className="modal" onClick={e=>e.stopPropagation()}>
     <div className="modal-grab"></div><div className="modal-head"><h3>{title}</h3></div>
@@ -860,9 +860,9 @@ function MoveForm({me,onCancel,onSubmit}){
     </div></div>
     {err && <div className="err" style={{margin:'0 16px 4px'}}>{err}</div>}
     <div style={{margin:'8px 16px 0'}}><div className={'chk'+(agreed?' on':'')} onClick={()=>{setAgreed(!agreed);setErr('')}}><div className="box">{agreed?'✓':''}</div>
-      <div className="txt">Li, compreendi e <b>concordo com as regras do regimento interno</b> aplicáveis à mudança. <a onClick={e=>{e.stopPropagation();setRules(true)}}>Ver regras</a></div></div></div>
+      <div className="txt">Li e <b>concordo com o Termo de Ciência e Responsabilidade</b> e as regras do Regimento Interno aplicáveis à mudança. <a onClick={e=>{e.stopPropagation();setRules(true)}}>Ver regras</a></div></div></div>
     <div style={{padding:16,display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} onClick={onCancel}>Cancelar</button><button className="btn" style={{flex:2}} onClick={submit}>Enviar solicitação</button></div>
-    {rules && <RulesModal rules={MOVE_RULES} title="Regras — Mudanças" onClose={()=>setRules(false)}/>}</>);
+    {rules && <RulesModal rules={MOVE_RULES} title="Termo e Regras — Mudança" onClose={()=>setRules(false)}/>}</>);
 }
 function WorkForm({me,onCancel,onSubmit}){
   const [f,setF]=useState({tipoObra:'',dataInicio:'',dataFim:''});
@@ -908,9 +908,9 @@ function WorkForm({me,onCancel,onSubmit}){
     </div></div>
     {err && <div className="err" style={{margin:'0 16px 4px'}}>{err}</div>}
     <div style={{margin:'8px 16px 0'}}><div className={'chk'+(agreed?' on':'')} onClick={()=>{setAgreed(!agreed);setErr('')}}><div className="box">{agreed?'✓':''}</div>
-      <div className="txt">Li, compreendi e <b>concordo com as regras do regimento interno</b> aplicáveis a obras. <a onClick={e=>{e.stopPropagation();setRules(true)}}>Ver regras</a></div></div></div>
+      <div className="txt">Li e <b>concordo com o Termo de Ciência e Responsabilidade</b> e as regras do Regimento Interno aplicáveis a obras. <a onClick={e=>{e.stopPropagation();setRules(true)}}>Ver regras</a></div></div></div>
     <div style={{padding:16,display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} onClick={onCancel}>Cancelar</button><button className="btn" style={{flex:2}} onClick={submit}>Enviar solicitação</button></div>
-    {rules && <RulesModal rules={WORK_RULES} title="Regras — Obras e Reformas" onClose={()=>setRules(false)}/>}</>);
+    {rules && <RulesModal rules={WORK_RULES} title="Termo e Regras — Obras" onClose={()=>setRules(false)}/>}</>);
 }
 
 /* ===== REQ CARD ===== */
