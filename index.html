@@ -224,29 +224,50 @@ const PH_HALL='data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAoHBwgHBg
 const ROLE_LABEL={morador:'Morador',sindico:'Síndico',subsindico:'Subsíndico',porteiro:'Porteiro',limpeza:'ASG'};
 const EMOJIS=['🏛️','🏊','🏋️','🎉','🛝','🅿️','🛗','🌳','🚪','🧺','🔥','🏀'];
 
-/* ===== Camada de dados — pronta p/ backend Google (ver GUIA) ===== */
-const API_BASE = "https://script.google.com/macros/s/AKfycbz6_fdV7ZgxHrAsKGpWqGt2dh-9J3LG_26B11X5u7auBgIUPUTJf95GS8299zamuVPvtg/exec"; // cole aqui a URL do Web App do Google Apps Script
+/* ===== Camada de dados — backend Google (ver GUIA) ===== */
+const BAKED_API = "https://script.google.com/macros/s/AKfycbz6_fdV7ZgxHrAsKGpWqGt2dh-9J3LG_26B11X5u7auBgIUPUTJf95GS8299zamuVPvtg/exec"; // URL do Web App embutida
+const _mem={};
+async function lget(k){
+  try{if(window.storage){const r=await window.storage.get(k);if(r&&r.value!=null)return r.value;}}catch(e){}
+  try{if(window.localStorage){const v=localStorage.getItem(k);if(v!=null)return v;}}catch(e){}
+  return (k in _mem)?_mem[k]:null;
+}
+async function lset(k,v){
+  try{if(window.storage){await window.storage.set(k,v);return;}}catch(e){}
+  try{if(window.localStorage){localStorage.setItem(k,v);return;}}catch(e){}
+  _mem[k]=v;
+}
+async function getApiBase(){try{const o=await lget('tp_api');return ((o||BAKED_API)||'').trim();}catch(e){return BAKED_API}}
+async function setApiBase(url){await lset('tp_api',(url||'').trim())}
 async function loadData(fb){
-  if(API_BASE){try{const r=await fetch(API_BASE+"?action=load");const j=await r.json();if(j&&j.data)return j.data;}catch(e){}}
-  try{if(window.storage){const r=await window.storage.get('tp_data');if(r&&r.value)return JSON.parse(r.value);}}catch(e){}
+  const API=await getApiBase();
+  if(API){try{const r=await fetch(API+"?action=load");const j=await r.json();if(j&&j.data)return j.data;}catch(e){}}
+  try{const v=await lget('tp_data');if(v)return JSON.parse(v);}catch(e){}
   return fb;
 }
 async function saveData(d){
-  if(API_BASE){try{await fetch(API_BASE,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'save',data:d})});}catch(e){}}
-  try{if(window.storage){await window.storage.set('tp_data',JSON.stringify(d));}}catch(e){}
+  const API=await getApiBase();
+  if(API){try{await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'save',data:d})});}catch(e){}}
+  try{await lset('tp_data',JSON.stringify(d));}catch(e){}
 }
 /* Sobe a foto para o Drive (via backend) e devolve o link.
    Sem backend ou em caso de erro, devolve a própria imagem (fallback local). */
 async function pushPhoto(dataUrl,folder,name){
-  if(!API_BASE||typeof dataUrl!=='string'||dataUrl.indexOf('data:')!==0) return dataUrl;
+  const API=await getApiBase();
+  if(!API||typeof dataUrl!=='string'||dataUrl.indexOf('data:')!==0) return dataUrl;
   try{
-    const r=await fetch(API_BASE,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'uploadPhoto',dataUrl,folder,name})});
+    const r=await fetch(API,{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'uploadPhoto',dataUrl,folder,name})});
     const j=await r.json();
     if(j&&j.ok&&j.url) return j.url;
   }catch(e){}
   return dataUrl;
 }
 async function pushPhotos(list,folder,name){const out=[];for(let i=0;i<list.length;i++)out.push(await pushPhoto(list[i],folder,name+'_'+i));return out}
+/* Base limpa para produção: mantém equipe (síndico/subsíndico/portaria/limpeza),
+   áreas e o regimento; zera moradores e solicitações de demonstração. */
+function prodBase(s){
+  return {users:s.users.filter(u=>u.role!=='morador'),areas:s.areas,announcements:[],moveRequests:[],workRequests:[],packages:[],tickets:[],visitors:[],documents:s.documents.filter(d=>d.category==='Regimento'),acks:[]};
+}
 
 function Knot({size=32}){return <img className="knot" src={KNOT} style={{width:size,height:size,display:'block'}} alt=""/>}
 function QR({text,size=96}){
@@ -603,6 +624,7 @@ function Auth({data,setData,onLogin}){
   };
   if(mode==='register') return <Register data={data} setData={setData} onDone={onLogin} back={()=>setMode('login')}/>;
   if(mode==='forgot') return <ForgotPassword data={data} setData={setData} onDone={onLogin} back={()=>setMode('login')}/>;
+  if(mode==='config') return <ServerConfig data={data} setData={setData} back={()=>setMode('login')}/>;
   return (
     <div className="app-shell"><div className="auth">
       <div className="auth-logo"><img src={LOCKUP} alt="Torre Passaré"/></div>
@@ -616,8 +638,37 @@ function Auth({data,setData,onLogin}){
         <div style={{textAlign:'center',marginTop:12}}><a style={{color:'var(--green-700)',fontWeight:700,fontSize:13,textDecoration:'underline'}} onClick={()=>setMode('forgot')}>Esqueci minha senha</a></div>
       </div>
       <div className="auth-foot">É morador e ainda não tem conta?<br/><a onClick={()=>setMode('register')}>Criar minha conta</a></div>
+      <div style={{textAlign:'center',marginTop:16}}><a style={{color:'var(--muted)',fontSize:12,textDecoration:'underline',cursor:'pointer'}} onClick={()=>setMode('config')}>⚙ Configurar servidor</a></div>
     </div></div>
   );
+}
+function ServerConfig({data,setData,back}){
+  const [url,setUrl]=useState('');const [status,setStatus]=useState('');const [busy,setBusy]=useState(false);const [confirmProd,setConfirmProd]=useState(false);
+  useEffect(()=>{getApiBase().then(u=>setUrl(u||''))},[]);
+  const save=async()=>{setBusy(true);await setApiBase(url);try{if(data)await saveData(data);}catch(e){}setBusy(false);setStatus('✓ URL salva e dados sincronizados com o servidor.')};
+  const test=async()=>{
+    setBusy(true);setStatus('Testando…');await setApiBase(url);
+    try{const r=await fetch(url.trim()+'?action=load');const j=await r.json();
+      setStatus(j&&j.ok!==undefined?'✓ Conectado! O servidor respondeu corretamente.':'⚠ Respondeu, mas em formato inesperado.');
+    }catch(e){setStatus('✕ Não consegui conectar. Confira a URL (deve terminar em /exec) e se a implantação está como "Qualquer pessoa".')}
+    setBusy(false);
+  };
+  const startProd=async()=>{const base=prodBase(seed);base.users=migrateUsers(base.users);setData(base);await saveData(base);setConfirmProd(false);setStatus('✓ Base de produção iniciada. Lembre de trocar as senhas da equipe.')};
+  return (<div className="app-shell"><div className="auth">
+    <div className="auth-logo"><img src={LOCKUP} alt=""/></div>
+    <h1>Servidor / Produção</h1>
+    <p className="sub">Conecte o app ao seu Google Apps Script</p>
+    <div className="auth-card">
+      <div className="field"><label>URL do Web App (termina em /exec)</label><input value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://script.google.com/macros/s/.../exec"/></div>
+      <div style={{display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} disabled={busy} onClick={save}>Salvar</button><button className="btn" style={{flex:1}} disabled={busy||!url} onClick={test}>Testar conexão</button></div>
+      {status && <div className="hint" style={{marginTop:12}}>{status}</div>}
+      <div className="divider"></div>
+      <div style={{fontSize:12.5,color:'var(--muted)',marginBottom:8}}>Pronto para abrir aos moradores? Comece com uma base limpa (mantém equipe, áreas e regimento; remove os dados de demonstração):</div>
+      {!confirmProd? <button className="btn red" onClick={()=>setConfirmProd(true)}>Iniciar base de produção</button>
+       : <><div className="err" style={{background:'#fff4f0'}}>Isto apaga os dados de demonstração. Confirmar?</div><div style={{display:'flex',gap:10}}><button className="btn ghost" style={{flex:1}} onClick={()=>setConfirmProd(false)}>Cancelar</button><button className="btn red" style={{flex:1}} onClick={startProd}>Sim, iniciar</button></div></>}
+    </div>
+    <div className="auth-foot"><a onClick={back}>‹ Voltar ao login</a></div>
+  </div></div>);
 }
 function Register({data,setData,onDone,back}){
   const [f,setF]=useState({name:'',torre:'',apt:'',cpf:'',email:'',pass:'',pass2:''});
